@@ -30,9 +30,17 @@ npm run build
 ## Firebase
 
 - مجموعة الطلبات: `intake_submissions`
+- مجموعة أحداث التحليلات: `analytics_events`
 - مسار لوحة الإدارة: `/admin`
+- مسار التحليلات: `/admin/analytics`
 - قواعد الوصول: `firestore.rules`
 - إعدادات النشر: `firebase.json`
+
+## Google Analytics 4
+
+لوحة الـFunnel الداخلية تعمل مباشرة عبر Firestore. لتفعيل GA4، اربط مشروع Firebase الحالي بـGoogle Analytics ثم أضف `VITE_FIREBASE_MEASUREMENT_ID` إلى بيئة النشر وأعد البناء.
+
+لا تُرسل الأسماء أو بيانات التواصل أو اسم الجهة أو نص الطلب إلى Analytics.
 
 ## الأمان
 

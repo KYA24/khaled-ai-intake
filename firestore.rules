@@ -6,7 +6,7 @@ service cloud.firestore {
       allow read: if isOwner();
       allow update: if isOwner();
       allow delete: if isOwner();
-      allow create: if request.resource.data.keys().hasOnly(['first_name','last_name','full_name','customer_type','service_type','service_duration','organization_name','phone','email','preferred_contact_method','request_description','ai_need','submitted_at','source','status'])
+      allow create: if request.resource.data.keys().hasOnly(['first_name','last_name','full_name','customer_type','service_type','service_duration','organization_name','phone','email','preferred_contact_method','request_description','ai_need','submitted_at','source','referrer','landing_page','analytics','status'])
         && request.resource.data.first_name is string && request.resource.data.first_name.size() >= 2 && request.resource.data.first_name.size() <= 60
         && request.resource.data.last_name is string && request.resource.data.last_name.size() <= 60
         && request.resource.data.full_name is string && request.resource.data.full_name.size() >= 3 && request.resource.data.full_name.size() <= 120
@@ -22,8 +22,30 @@ service cloud.firestore {
         && request.resource.data.request_description is string && request.resource.data.request_description.size() >= 15 && request.resource.data.request_description.size() <= 5000
         && request.resource.data.ai_need is string && request.resource.data.ai_need.size() >= 15 && request.resource.data.ai_need.size() <= 5000
         && request.resource.data.submitted_at == request.time
-        && request.resource.data.source in ['tiktok','instagram','linkedin','referral']
+        && request.resource.data.source in ['tiktok','linkedin','live','direct','referral','other']
+        && request.resource.data.referrer is string && request.resource.data.referrer.size() <= 1000
+        && request.resource.data.landing_page is string && request.resource.data.landing_page.size() <= 500
+        && request.resource.data.analytics is map
+        && request.resource.data.analytics.keys().hasOnly(['session_id','source'])
+        && request.resource.data.analytics.session_id is string
+        && request.resource.data.analytics.session_id.size() >= 20
+        && request.resource.data.analytics.session_id.size() <= 80
+        && request.resource.data.analytics.source == request.resource.data.source
         && request.resource.data.status == 'new';
+    }
+    match /analytics_events/{event} {
+      allow read: if isOwner();
+      allow update, delete: if false;
+      allow create: if request.resource.data.keys().hasOnly(['event_name','session_id','customer_type','service_type','form_step','source','created_at'])
+        && request.resource.data.event_name in ['form_view','customer_type_selected','service_type_selected','request_started','contact_step_reached','generate_lead']
+        && request.resource.data.session_id is string
+        && request.resource.data.session_id.size() >= 20
+        && request.resource.data.session_id.size() <= 80
+        && (request.resource.data.customer_type == null || request.resource.data.customer_type in ['individual','organization_or_project_owner'])
+        && (request.resource.data.service_type == null || request.resource.data.service_type in ['short_session','deep_session','service'])
+        && (request.resource.data.form_step == null || request.resource.data.form_step in ['1','2','3','4'])
+        && (request.resource.data.source == null || request.resource.data.source in ['tiktok','linkedin','live','direct','referral','other'])
+        && request.resource.data.created_at == request.time;
     }
   }
 }

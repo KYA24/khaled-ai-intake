@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import {
   ArrowLeft,
   ArrowRight,
+  BarChart3,
   BriefcaseBusiness,
   Building2,
   CalendarClock,
@@ -13,6 +14,7 @@ import {
   FileText,
   LogIn,
   LogOut,
+  ListChecks,
   Mail,
   MessageCircle,
   Phone,
@@ -32,14 +34,17 @@ import {
   signInAdmin,
   signOutAdmin,
   submitIntake,
+  subscribeAnalyticsEvents,
   subscribeSubmissions,
   updateSubmission,
 } from "./firebase";
+import { getVisitContext, trackFunnelEvent } from "./analytics";
 import "./styles.css";
 import "./enhancements.css";
 import "./motion.css";
 import "./intro-hold.css";
 import "./admin-review.css";
+import "./admin-analytics.css";
 import "./premium-intake.css";
 import "./intake-refinement.css";
 
@@ -439,8 +444,10 @@ function LegacyIntakeApp() {
 function IntakeApp() {
   const [intro, setIntro] = useState(true), [step, setStep] = useState(1), [data, setData] = useState(initial), [showConsultation, setShowConsultation] = useState(false), [errors, setErrors] = useState({}), [sending, setSending] = useState(false), [done, setDone] = useState(false), [failed, setFailed] = useState("");
   const panel = useRef(null), total = 4;
+  useEffect(() => { trackFunnelEvent("form_view", data, 1); }, []);
   useEffect(() => { const timer = setTimeout(() => setIntro(false), 3850); return () => clearTimeout(timer); }, []);
   useEffect(() => { if (!intro) setTimeout(() => panel.current?.querySelector("input,textarea,button")?.focus(), 340); }, [step, intro]);
+  useEffect(() => { if (step === 4) trackFunnelEvent("contact_step_reached", data, 4); }, [step]);
   const set = (key, value) => { setData((current) => ({ ...current, [key]: value })); setErrors((current) => ({ ...current, [key]: "" })); setFailed(""); };
   const validate = () => {
     const nextErrors = {};
@@ -460,12 +467,12 @@ function IntakeApp() {
   };
   const next = () => { if (validate()) setStep((current) => Math.min(total, current + 1)); };
   const back = () => { setErrors({}); setFailed(""); setStep((current) => Math.max(1, current - 1)); };
-  const chooseCustomer = (value) => { set("customer_type", value); setTimeout(() => setStep(2), 260); };
-  const chooseService = (value, duration) => { setData((current) => ({ ...current, service_type: value, service_duration: duration })); setErrors((current) => ({ ...current, service_type: "" })); setTimeout(() => setStep(3), 260); };
+  const chooseCustomer = (value) => { set("customer_type", value); trackFunnelEvent("customer_type_selected", { ...data, customer_type: value }, 1); setTimeout(() => setStep(2), 260); };
+  const chooseService = (value, duration) => { setData((current) => ({ ...current, service_type: value, service_duration: duration })); setErrors((current) => ({ ...current, service_type: "" })); trackFunnelEvent("service_type_selected", { ...data, service_type: value }, 2); setTimeout(() => setStep(3), 260); };
   const submit = async () => {
     if (step !== total || !validate()) return;
     setSending(true); setFailed("");
-    try { const parts = data.full_name.trim().split(/\s+/); await submitIntake({ ...data, first_name: parts[0], last_name: parts.slice(1).join(" "), request_description: data.request_description.trim(), phone: ["whatsapp", "call"].includes(data.preferred_contact_method) ? data.phone.trim() : "", email: data.preferred_contact_method === "email" ? data.email.trim().toLowerCase() : "" }); setDone(true); }
+    try { const parts = data.full_name.trim().split(/\s+/); await submitIntake({ ...data, first_name: parts[0], last_name: parts.slice(1).join(" "), request_description: data.request_description.trim(), phone: ["whatsapp", "call"].includes(data.preferred_contact_method) ? data.phone.trim() : "", email: data.preferred_contact_method === "email" ? data.email.trim().toLowerCase() : "" }, getVisitContext()); await trackFunnelEvent("generate_lead", data, 4); setDone(true); }
     catch (error) { console.error(error); setFailed("ما وصل الطلب. تأكد من اتصالك وجرّب مرة ثانية."); }
     finally { setSending(false); }
   };
@@ -482,7 +489,7 @@ function IntakeApp() {
         {showConsultation && <div className="consultation-options reveal"><button type="button" className={data.service_type === "short_session" ? "selected" : ""} onClick={() => chooseService("short_session", "20-30_min")}><strong>قصيرة</strong><span>20–30 دقيقة</span></button><button type="button" className={data.service_type === "deep_session" ? "selected" : ""} onClick={() => chooseService("deep_session", "up_to_60_min")}><strong>معمقة</strong><span>حتى 60 دقيقة</span></button></div>}
         <ServiceChoice icon={BriefcaseBusiness} title="خدمة" selected={data.service_type === "service"} onClick={() => chooseService("service", null)}>تنفيذ موقع، Dashboard، أداة AI، Portfolio، Workflow، نظام داخلي، أو حل رقمي مشابه.</ServiceChoice>
       </div>{errors.service_type && <small className="group-error">{errors.service_type}</small>}</>}
-      {step === 3 && <><p className="eyebrow">التفاصيل</p><h1>{data.service_type === "service" ? "وش الشيء اللي ودك أسويه لك؟" : "وش الموضوع اللي ودك نناقشه؟"}</h1><p className="helper">{data.service_type === "service" ? "اشرح الفكرة باختصار: وش تبغى تبني؟ لمين؟ وش النتيجة اللي تتوقعها؟" : "اكتب لي باختصار وش وضعك الحالي، وش القرار أو النتيجة اللي ودك تطلع فيها من الجلسة."}</p>{data.service_type === "service" && <div className="example-list"><span>موقع</span><span>Dashboard</span><span>أداة AI</span><span>Portfolio</span><span>Workflow</span><span>نظام داخلي</span><span>فكرة أخرى</span></div>}<label className="field textarea"><span>وصف الطلب</span><textarea name="request_description" rows="6" placeholder={data.service_type === "service" ? "مثال: أبي Dashboard لفريقي تجمع المهام والمشاريع وتوضح حالة كل مشروع بشكل واضح." : "مثال: عندي مشروع صغير وأستخدم ChatGPT يوميًا، لكن أبي أعرف أفضل طريقة أنظم فيها Workflow وأعرف وش الأشياء اللي فعلًا تستاهل AI."} value={data.request_description} onChange={(event) => set("request_description", event.target.value)} aria-invalid={Boolean(errors.request_description)} />{errors.request_description && <small>{errors.request_description}</small>}</label>{data.service_type === "service" && <p className="qualification-note"><CircleDashed size={17} />قبل أي تنفيذ، نسوي مكالمة قصيرة تقريبًا 10 دقائق لفهم الطلب والتأكد أني أقدر أخدمك فيه. بعدها نتفق على الخطوة المناسبة.</p>}</>}
+      {step === 3 && <><p className="eyebrow">التفاصيل</p><h1>{data.service_type === "service" ? "وش الشيء اللي ودك أسويه لك؟" : "وش الموضوع اللي ودك نناقشه؟"}</h1><p className="helper">{data.service_type === "service" ? "اشرح الفكرة باختصار: وش تبغى تبني؟ لمين؟ وش النتيجة اللي تتوقعها؟" : "اكتب لي باختصار وش وضعك الحالي، وش القرار أو النتيجة اللي ودك تطلع فيها من الجلسة."}</p>{data.service_type === "service" && <div className="example-list"><span>موقع</span><span>Dashboard</span><span>أداة AI</span><span>Portfolio</span><span>Workflow</span><span>نظام داخلي</span><span>فكرة أخرى</span></div>}<label className="field textarea"><span>وصف الطلب</span><textarea name="request_description" rows="6" placeholder={data.service_type === "service" ? "مثال: أبي Dashboard لفريقي تجمع المهام والمشاريع وتوضح حالة كل مشروع بشكل واضح." : "مثال: عندي مشروع صغير وأستخدم ChatGPT يوميًا، لكن أبي أعرف أفضل طريقة أنظم فيها Workflow وأعرف وش الأشياء اللي فعلًا تستاهل AI."} value={data.request_description} onChange={(event) => { if (!data.request_description) trackFunnelEvent("request_started", data, 3); set("request_description", event.target.value); }} aria-invalid={Boolean(errors.request_description)} />{errors.request_description && <small>{errors.request_description}</small>}</label>{data.service_type === "service" && <p className="qualification-note"><CircleDashed size={17} />قبل أي تنفيذ، نسوي مكالمة قصيرة تقريبًا 10 دقائق لفهم الطلب والتأكد أني أقدر أخدمك فيه. بعدها نتفق على الخطوة المناسبة.</p>}</>}
       {step === 4 && <><p className="eyebrow">آخر خطوة</p><h1>كيف نتواصل معك؟</h1><div className="stack"><Field label="الاسم الكامل" name="full_name" autoComplete="name" value={data.full_name} onChange={(event) => set("full_name", event.target.value)} error={errors.full_name} />{data.customer_type === "organization_or_project_owner" && <div className="reveal"><Field label="اسم الجهة أو المشروع (اختياري)" name="organization_name" autoComplete="organization" value={data.organization_name} onChange={(event) => set("organization_name", event.target.value)} /></div>}<div><span className="field-label">طريقة التواصل المفضلة</span><div className="choices contact">{contactOptions.map(({ v, l, I }) => <Choice key={v} icon={I} selected={data.preferred_contact_method === v} onClick={() => set("preferred_contact_method", v)}>{l}</Choice>)}</div>{errors.preferred_contact_method && <small className="group-error">{errors.preferred_contact_method}</small>}</div>{["whatsapp", "call"].includes(data.preferred_contact_method) && <div className="reveal"><Field label={data.preferred_contact_method === "whatsapp" ? "رقم WhatsApp" : "رقم الجوال"} name="phone" type="tel" dir="ltr" inputMode="tel" autoComplete="tel" value={data.phone} onChange={(event) => set("phone", event.target.value)} error={errors.phone} /></div>}{data.preferred_contact_method === "email" && <div className="reveal"><Field label="البريد الإلكتروني" name="email" type="email" dir="ltr" inputMode="email" autoComplete="email" placeholder="name@example.com" value={data.email} onChange={(event) => set("email", event.target.value)} error={errors.email} /></div>}</div></>}
     </section>{failed && <div className="submit-error" role="alert">{failed}</div>}<footer>{step > 1 ? <button type="button" className="back" onClick={back}><ArrowRight size={18} /> رجوع</button> : <span />}<button type="button" className="primary" onClick={step === total ? submit : next} disabled={sending}>{sending ? <><span className="spinner" />جاري الإرسال</> : step === total ? <>إرسال الطلب <ArrowLeft size={18} /></> : <>التالي <ArrowLeft size={18} /></>}</button></footer></form><p className="privacy">بياناتك لفهم طلبك والتواصل معك فقط.</p></main>;
 }
@@ -544,7 +551,9 @@ function AdminApp() {
     [sourceFilter, setSourceFilter] = useState("all"),
     [sort, setSort] = useState("newest"),
     [selectedId, setSelectedId] = useState(null),
-    [dataError, setDataError] = useState("");
+    [dataError, setDataError] = useState(""),
+    [analyticsEvents, setAnalyticsEvents] = useState([]),
+    [analyticsError, setAnalyticsError] = useState("");
   useEffect(() => {
     document.title = "طلبات خالد · AI Workflow";
     const manifest = document.createElement("link");
@@ -581,8 +590,10 @@ function AdminApp() {
     [],
   );
   useEffect(() => {
-    if (auth.user?.email === OWNER_EMAIL)
-      return subscribeSubmissions(setRows, (e) => setDataError(e.message));
+    if (auth.user?.email !== OWNER_EMAIL) return;
+    if (window.location.pathname.startsWith("/admin/analytics"))
+      return subscribeAnalyticsEvents(setAnalyticsEvents, (e) => setAnalyticsError(e.message));
+    return subscribeSubmissions(setRows, (e) => setDataError(e.message));
   }, [auth.user]);
   if (auth.loading) return <AdminLoading />;
   if (!auth.user)
@@ -613,6 +624,8 @@ function AdminApp() {
         </section>
       </main>
     );
+  if (window.location.pathname.startsWith("/admin/analytics"))
+    return <AnalyticsDashboard user={auth.user} events={analyticsEvents} error={analyticsError} />;
   const filtered = rows
     .filter((r) =>
       [displayName(r), requestDescription(r), r.email, r.phone, r.organization_name, serviceTypeLabel(r)]
@@ -623,7 +636,7 @@ function AdminApp() {
     .filter((r) => statusFilter === "all" || requestState(r) === statusFilter)
     .filter((r) => typeFilter === "all" || r.customer_type === typeFilter)
     .filter(
-      (r) => sourceFilter === "all" || (r.source || "tiktok") === sourceFilter,
+      (r) => sourceFilter === "all" || (r.source || "direct") === sourceFilter,
     )
     .sort((a, b) => {
       const aTime = a.submitted_at?.seconds || 0;
@@ -687,9 +700,12 @@ function AdminApp() {
             >
               <option value="all">كل المصادر</option>
               <option value="tiktok">TikTok</option>
-              <option value="instagram">Instagram</option>
               <option value="linkedin">LinkedIn</option>
+              <option value="live">Live</option>
+              <option value="direct">Direct</option>
               <option value="referral">إحالة</option>
+              <option value="other">Other</option>
+              <option value="instagram">Instagram (قديم)</option>
             </select>
           </label>
           <label className="filter-control sort-control">
@@ -790,6 +806,10 @@ function AdminHeader({ user }) {
           <small>AI Workflow</small>
         </span>
       </div>
+      <nav className="admin-nav" aria-label="التنقل في لوحة الإدارة">
+        <a href="/admin" className={window.location.pathname === "/admin" || window.location.pathname === "/admin/" ? "active" : ""}><ListChecks size={16} /> الطلبات</a>
+        <a href="/admin/analytics" className={window.location.pathname.startsWith("/admin/analytics") ? "active" : ""}><BarChart3 size={16} /> التحليلات</a>
+      </nav>
       <div className="admin-user">
         <span>
           <b>{user.displayName || "خالد"}</b>
@@ -803,6 +823,62 @@ function AdminHeader({ user }) {
     </header>
   );
 }
+
+const funnelStages = [
+  ["form_view", "مشاهدة النموذج"],
+  ["customer_type_selected", "اختيار نوع العميل"],
+  ["service_type_selected", "اختيار الخدمة"],
+  ["request_started", "بدء وصف الطلب"],
+  ["contact_step_reached", "الوصول للتواصل"],
+  ["generate_lead", "إرسال الطلب"],
+];
+const sourceLabels = { tiktok: "TikTok", linkedin: "LinkedIn", live: "Live", direct: "Direct", referral: "Referral", other: "Other" };
+const serviceLabels = { short_session: "استشارة قصيرة", deep_session: "استشارة معمقة", service: "خدمة" };
+const customerLabels = { individual: "فرد", organization_or_project_owner: "جهة / صاحب مشروع" };
+
+function AnalyticsDashboard({ user, events, error }) {
+  const [range, setRange] = useState("30"), [source, setSource] = useState("all"), [customer, setCustomer] = useState("all"), [service, setService] = useState("all");
+  const cutoff = range === "all" ? 0 : Date.now() - Number(range) * 86400000;
+  const filtered = events.filter((event) => {
+    const time = event.created_at?.toMillis?.() || 0;
+    return (!cutoff || time >= cutoff) && (source === "all" || event.source === source) && (customer === "all" || event.customer_type === customer) && (service === "all" || event.service_type === service);
+  });
+  const count = (name) => filtered.filter((event) => event.event_name === name).length;
+  const views = count("form_view"), starts = count("request_started"), contact = count("contact_step_reached"), leads = count("generate_lead");
+  const sessions = new Set(filtered.map((event) => event.session_id)).size;
+  const conversion = views ? `${Math.round((leads / views) * 100)}%` : "N/A";
+  const byDay = aggregateByDay(filtered, range === "1" ? 1 : range === "7" ? 7 : 30);
+  return <main className="admin-shell analytics-shell">
+    <AdminHeader user={user} />
+    <section className="analytics-heading"><div><p className="admin-kicker">Analytics</p><h1>رحلة الزوار والطلبات</h1><p>بيانات تشغيلية مختصرة بدون معلومات شخصية.</p></div></section>
+    <section className="analytics-filters" aria-label="فلاتر التحليلات">
+      <select value={range} onChange={(e) => setRange(e.target.value)}><option value="1">اليوم</option><option value="7">7 أيام</option><option value="30">30 يومًا</option><option value="all">كل الوقت</option></select>
+      <select value={source} onChange={(e) => setSource(e.target.value)}><option value="all">كل المصادر</option>{Object.entries(sourceLabels).map(([v,l]) => <option key={v} value={v}>{l}</option>)}</select>
+      <select value={customer} onChange={(e) => setCustomer(e.target.value)}><option value="all">كل العملاء</option>{Object.entries(customerLabels).map(([v,l]) => <option key={v} value={v}>{l}</option>)}</select>
+      <select value={service} onChange={(e) => setService(e.target.value)}><option value="all">كل الخدمات</option>{Object.entries(serviceLabels).map(([v,l]) => <option key={v} value={v}>{l}</option>)}</select>
+    </section>
+    {error && <div className="submit-error">تعذر تحميل التحليلات: {error}</div>}
+    <section className="analytics-kpis">
+      <AnalyticsKpi label="الزوار / الجلسات" value={sessions} />
+      <AnalyticsKpi label="مشاهدات النموذج" value={views} />
+      <AnalyticsKpi label="بدأوا الوصف" value={starts} />
+      <AnalyticsKpi label="وصلوا للتواصل" value={contact} />
+      <AnalyticsKpi label="طلبات مكتملة" value={leads} />
+      <AnalyticsKpi label="نسبة التحويل" value={conversion} />
+    </section>
+    {!filtered.length && !error ? <section className="analytics-empty"><BarChart3 /><h2>ما فيه بيانات ضمن الفلاتر الحالية</h2><p>تبدأ الأرقام بالظهور مع زيارات النموذج الجديدة.</p></section> : <>
+      <section className="analytics-grid">
+        <article className="analytics-card funnel-card"><h2>مسار النموذج</h2><div className="funnel-list">{funnelStages.map(([name,label], index) => { const value = count(name), previous = index ? count(funnelStages[index - 1][0]) : value, rate = previous ? Math.round(value / previous * 100) : null, drop = previous ? Math.max(previous - value, 0) : 0; return <div key={name}><span><b>{label}</b><small>{index ? `${rate ?? "N/A"}% من المرحلة السابقة · فقد ${drop}` : "نقطة البداية"}</small></span><strong>{value}</strong><i style={{ width: `${views ? Math.min(value / views * 100, 100) : 0}%` }} /></div>; })}</div></article>
+        <article className="analytics-card"><h2>الزيارات والطلبات</h2><div className="timeline-chart">{byDay.map((day) => <div key={day.key}><span className="bars"><i style={{ height: `${day.views ? Math.max(day.views / byDay.max * 100, 8) : 0}%` }} /><i className="lead" style={{ height: `${day.leads ? Math.max(day.leads / byDay.max * 100, 8) : 0}%` }} /></span><small>{day.label}</small></div>)}</div><div className="chart-legend"><span><i />زيارات</span><span><i className="lead" />طلبات</span></div></article>
+      </section>
+      <section className="analytics-grid three"><Breakdown title="مصادر الزيارة" rows={breakdown(filtered.filter(e => e.event_name === "form_view"), "source", sourceLabels)} /><Breakdown title="الطلب على الخدمات" rows={breakdown(filtered.filter(e => e.event_name === "service_type_selected"), "service_type", serviceLabels)} /><Breakdown title="نوع العميل" rows={breakdown(filtered.filter(e => e.event_name === "customer_type_selected"), "customer_type", customerLabels)} /></section>
+    </>}
+  </main>;
+}
+function AnalyticsKpi({ label, value }) { return <article><small>{label}</small><strong>{value}</strong></article>; }
+function breakdown(events, key, labels) { const counts = {}; events.forEach((event) => { const value = event[key] || "other"; counts[value] = (counts[value] || 0) + 1; }); return Object.entries(labels).map(([value,label]) => ({ label, value: counts[value] || 0 })).filter((row) => row.value); }
+function Breakdown({ title, rows }) { const max = Math.max(...rows.map((row) => row.value), 1); return <article className="analytics-card breakdown"><h2>{title}</h2>{rows.length ? rows.map((row) => <div key={row.label}><span><b>{row.label}</b><strong>{row.value}</strong></span><i><em style={{ width: `${row.value / max * 100}%` }} /></i></div>) : <p className="mini-empty">لا توجد بيانات بعد.</p>}</article>; }
+function aggregateByDay(events, days) { const result = []; const actualDays = Math.min(days, 30); for (let offset = actualDays - 1; offset >= 0; offset--) { const date = new Date(); date.setHours(0,0,0,0); date.setDate(date.getDate() - offset); const key = date.toISOString().slice(0,10); result.push({ key, label: new Intl.DateTimeFormat("ar-SA", { day: "numeric", month: "short" }).format(date), views: 0, leads: 0 }); } events.forEach((event) => { const date = event.created_at?.toDate?.(); if (!date) return; const key = new Date(date.getFullYear(), date.getMonth(), date.getDate()).toISOString().slice(0,10); const day = result.find((item) => item.key === key); if (day && event.event_name === "form_view") day.views++; if (day && event.event_name === "generate_lead") day.leads++; }); result.max = Math.max(...result.flatMap((day) => [day.views, day.leads]), 1); return result; }
 function Stats({ rows }) {
   const total = rows.length,
     fresh = rows.filter((r) => requestState(r) === "new").length,
@@ -1051,7 +1127,7 @@ function RequestDrawer({ row, onClose }) {
             <span>
               {customerTypeLabel(row)} · {serviceTypeLabel(row)}
             </span>
-            <span>{row.source || "tiktok"}</span>
+            <span>{row.source || "direct"}</span>
           </div>
           {row.organization_name && (
             <p className="drawer-org">{row.organization_name}</p>
