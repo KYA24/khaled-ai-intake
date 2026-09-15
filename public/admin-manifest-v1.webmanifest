@@ -1,0 +1,16 @@
+{
+  "name": "طلبات خالد",
+  "short_name": "طلبات خالد",
+  "description": "لوحة إدارة طلبات توظيف الذكاء الاصطناعي",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "/admin/?source=pwa",
+  "scope": "/admin/",
+  "display": "standalone",
+  "background_color": "#f2f1f7",
+  "theme_color": "#5b4ba3",
+  "icons": [
+    {"src":"/admin-app-icon-v1-192.png","sizes":"192x192","type":"image/png","purpose":"any maskable"},
+    {"src":"/admin-app-icon-v1-512.png","sizes":"512x512","type":"image/png","purpose":"any maskable"}
+  ]
+}

@@ -1,0 +1,29 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isOwner() { return request.auth != null && request.auth.token.email == 'k.alateeq.cis@gmail.com'; }
+    match /intake_submissions/{submission} {
+      allow read: if isOwner();
+      allow update: if isOwner();
+      allow delete: if isOwner();
+      allow create: if request.resource.data.keys().hasOnly(['first_name','last_name','full_name','customer_type','service_type','service_duration','organization_name','phone','email','preferred_contact_method','request_description','ai_need','submitted_at','source','status'])
+        && request.resource.data.first_name is string && request.resource.data.first_name.size() >= 2 && request.resource.data.first_name.size() <= 60
+        && request.resource.data.last_name is string && request.resource.data.last_name.size() <= 60
+        && request.resource.data.full_name is string && request.resource.data.full_name.size() >= 3 && request.resource.data.full_name.size() <= 120
+        && request.resource.data.customer_type in ['individual','organization_or_project_owner']
+        && request.resource.data.service_type in ['short_session','deep_session','service']
+        && (request.resource.data.service_duration in ['20-30_min','up_to_60_min'] || request.resource.data.service_duration == null)
+        && request.resource.data.organization_name is string && request.resource.data.organization_name.size() <= 160
+        && request.resource.data.phone is string && request.resource.data.phone.size() <= 25
+        && request.resource.data.email is string && request.resource.data.email.size() <= 200
+        && request.resource.data.preferred_contact_method in ['whatsapp','call','email']
+        && ((request.resource.data.preferred_contact_method in ['whatsapp','call'] && request.resource.data.phone.size() >= 9)
+          || (request.resource.data.preferred_contact_method == 'email' && request.resource.data.email.size() >= 5))
+        && request.resource.data.request_description is string && request.resource.data.request_description.size() >= 15 && request.resource.data.request_description.size() <= 5000
+        && request.resource.data.ai_need is string && request.resource.data.ai_need.size() >= 15 && request.resource.data.ai_need.size() <= 5000
+        && request.resource.data.submitted_at == request.time
+        && request.resource.data.source in ['tiktok','instagram','linkedin','referral']
+        && request.resource.data.status == 'new';
+    }
+  }
+}
