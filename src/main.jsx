@@ -444,7 +444,29 @@ function LegacyIntakeApp() {
 function IntakeApp() {
   const [intro, setIntro] = useState(true), [step, setStep] = useState(1), [data, setData] = useState(initial), [showConsultation, setShowConsultation] = useState(false), [errors, setErrors] = useState({}), [sending, setSending] = useState(false), [done, setDone] = useState(false), [failed, setFailed] = useState("");
   const panel = useRef(null), total = 4;
-  useEffect(() => { trackFunnelEvent("form_view", data, 1); }, []);
+  useEffect(() => {
+    // Remove root-scoped workers/caches left by older deployments. The admin
+    // PWA is scoped to /admin/ and its cache remains intact.
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.getRegistrations().then((registrations) =>
+        Promise.all(
+          registrations
+            .filter((registration) => registration.scope === `${location.origin}/`)
+            .map((registration) => registration.unregister()),
+        ),
+      ).catch(() => {});
+    }
+    if ("caches" in window) {
+      caches.keys().then((keys) =>
+        Promise.all(
+          keys
+            .filter((key) => !key.startsWith("khaled-admin-"))
+            .map((key) => caches.delete(key)),
+        ),
+      ).catch(() => {});
+    }
+    trackFunnelEvent("form_view", data, 1);
+  }, []);
   useEffect(() => { const timer = setTimeout(() => setIntro(false), 3850); return () => clearTimeout(timer); }, []);
   useEffect(() => { if (!intro) setTimeout(() => panel.current?.querySelector("input,textarea,button")?.focus(), 340); }, [step, intro]);
   useEffect(() => { if (step === 4) trackFunnelEvent("contact_step_reached", data, 4); }, [step]);
