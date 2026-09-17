@@ -595,7 +595,7 @@ function AdminApp() {
           ),
         )
         .then(() =>
-          navigator.serviceWorker.register("/admin-sw-v2.js", {
+          navigator.serviceWorker.register("/admin-sw-v3.js", {
             scope: "/admin/",
           }),
         )

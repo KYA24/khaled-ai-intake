@@ -2,6 +2,7 @@
 .admin-nav a { color:#ffffffb8; text-decoration:none; display:flex; align-items:center; gap:7px; padding:9px 13px; border-radius:9px; font-size:13px; font-weight:650; }
 .admin-nav a:hover,.admin-nav a.active { color:#fff; background:#ffffff18; }
 .analytics-shell { width:100%; max-width:100%; overflow-x:hidden; padding-bottom:56px; }
+.analytics-shell > *,.analytics-grid > *,.analytics-filters > *,.analytics-kpis > * { min-width:0; max-width:100%; }
 .analytics-heading { margin:24px 0 16px; padding:25px 28px; border:1px solid var(--admin-border); border-radius:17px; background:#fff; box-shadow:0 8px 30px rgba(22,35,30,.055); }
 .analytics-heading h1 { margin:4px 0 5px; font-size:28px; }
 .analytics-heading p:last-child { margin:0; color:var(--admin-muted); font-size:13px; }

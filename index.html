@@ -14,22 +14,22 @@
     <link rel="apple-touch-icon" href="/admin-apple-touch-icon-v2-180.png" />
     <title>جلسات وخدمات خالد</title>
     <script>
-      // Prevent in-app browsers from reviving an obsolete form bundle.
-      if (!location.pathname.startsWith("/admin")) {
-        fetch("/app-version.json", { cache: "no-store" })
-          .then((response) => response.json())
-          .then(({ version }) => {
-            const key = "khaled-intake-version";
-            const previous = localStorage.getItem(key);
-            localStorage.setItem(key, version);
-            if (previous && previous !== version) {
-              const url = new URL(location.href);
-              url.searchParams.set("v", version);
-              location.replace(url.toString());
-            }
-          })
-          .catch(() => {});
-      }
+      // Prevent browsers and the installed admin PWA from reviving an old bundle.
+      fetch("/app-version.json", { cache: "no-store" })
+        .then((response) => response.json())
+        .then(({ version }) => {
+          const key = location.pathname.startsWith("/admin")
+            ? "khaled-admin-version"
+            : "khaled-intake-version";
+          const previous = localStorage.getItem(key);
+          localStorage.setItem(key, version);
+          if (previous && previous !== version) {
+            const url = new URL(location.href);
+            url.searchParams.set("v", version);
+            location.replace(url.toString());
+          }
+        })
+        .catch(() => {});
     </script>
   </head>
   <body>
