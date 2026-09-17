@@ -891,13 +891,45 @@ function AnalyticsDashboard({ user, events, error }) {
     {!filtered.length && !error ? <section className="analytics-empty"><BarChart3 /><h2>ما فيه بيانات ضمن الفلاتر الحالية</h2><p>تبدأ الأرقام بالظهور مع زيارات النموذج الجديدة.</p></section> : <>
       <section className="analytics-grid">
         <article className="analytics-card funnel-card"><h2>مسار النموذج</h2><div className="funnel-list">{funnelStages.map(([name,label], index) => { const value = count(name), previous = index ? count(funnelStages[index - 1][0]) : value, rate = previous ? Math.round(value / previous * 100) : null, drop = previous ? Math.max(previous - value, 0) : 0; return <div key={name}><span><b>{label}</b><small>{index ? `${rate ?? "N/A"}% من المرحلة السابقة · فقد ${drop}` : "نقطة البداية"}</small></span><strong>{value}</strong><i style={{ width: `${views ? Math.min(value / views * 100, 100) : 0}%` }} /></div>; })}</div></article>
-        <article className="analytics-card"><h2>الزيارات والطلبات</h2><div className="timeline-chart">{byDay.map((day) => <div key={day.key}><span className="bars"><i style={{ height: `${day.views ? Math.max(day.views / byDay.max * 100, 8) : 0}%` }} /><i className="lead" style={{ height: `${day.leads ? Math.max(day.leads / byDay.max * 100, 8) : 0}%` }} /></span><small>{day.label}</small></div>)}</div><div className="chart-legend"><span><i />زيارات</span><span><i className="lead" />طلبات</span></div></article>
+        <TimelineChart days={byDay} />
       </section>
       <section className="analytics-grid three"><Breakdown title="مصادر الزيارة" rows={breakdown(filtered.filter(e => e.event_name === "form_view"), "source", sourceLabels)} /><Breakdown title="الطلب على الخدمات" rows={breakdown(filtered.filter(e => e.event_name === "service_type_selected"), "service_type", serviceLabels)} /><Breakdown title="نوع العميل" rows={breakdown(filtered.filter(e => e.event_name === "customer_type_selected"), "customer_type", customerLabels)} /></section>
     </>}
   </main>;
 }
 function AnalyticsKpi({ label, value }) { return <article><small>{label}</small><strong>{value}</strong></article>; }
+function TimelineChart({ days }) {
+  const width = 720, height = 220, top = 18, bottom = 38, side = 18;
+  const plotHeight = height - top - bottom;
+  const plotWidth = width - side * 2;
+  const x = (index) => side + (days.length > 1 ? index / (days.length - 1) * plotWidth : plotWidth / 2);
+  const y = (value) => top + plotHeight - (value / days.max) * plotHeight;
+  const points = (key) => days.map((day, index) => `${x(index)},${y(day[key])}`).join(" ");
+  const area = `${side},${top + plotHeight} ${points("views")} ${side + plotWidth},${top + plotHeight}`;
+  const labelIndexes = [...new Set([0, Math.round((days.length - 1) * .25), Math.round((days.length - 1) * .5), Math.round((days.length - 1) * .75), days.length - 1])];
+  const totalViews = days.reduce((sum, day) => sum + day.views, 0);
+  const totalLeads = days.reduce((sum, day) => sum + day.leads, 0);
+  return <article className="analytics-card timeline-card">
+    <header className="chart-heading">
+      <div><h2>الزيارات والطلبات</h2><p>اتجاه النشاط خلال الفترة المختارة</p></div>
+      <div className="chart-totals"><span><b>{totalViews}</b> زيارة</span><span><b>{totalLeads}</b> طلب</span></div>
+    </header>
+    <div className="timeline-chart" role="img" aria-label={`مخطط الزيارات والطلبات: ${totalViews} زيارة و${totalLeads} طلب`}>
+      <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
+        {[0, .5, 1].map((ratio) => <line key={ratio} className="chart-gridline" x1={side} x2={width - side} y1={top + plotHeight * ratio} y2={top + plotHeight * ratio} />)}
+        <polygon className="visits-area" points={area} />
+        <polyline className="visits-line" points={points("views")} />
+        <polyline className="leads-line" points={points("leads")} />
+        {days.map((day, index) => day.views || day.leads ? <g key={day.key}>
+          {day.views > 0 && <circle className="visits-point" cx={x(index)} cy={y(day.views)} r="3.5"><title>{`${day.label}: ${day.views} زيارة`}</title></circle>}
+          {day.leads > 0 && <circle className="leads-point" cx={x(index)} cy={y(day.leads)} r="3.5"><title>{`${day.label}: ${day.leads} طلب`}</title></circle>}
+        </g> : null)}
+        {labelIndexes.map((index) => <text key={days[index].key} x={x(index)} y={height - 10} textAnchor={index === 0 ? "start" : index === days.length - 1 ? "end" : "middle"}>{days[index].label}</text>)}
+      </svg>
+    </div>
+    <div className="chart-legend"><span><i />زيارات</span><span><i className="lead" />طلبات</span></div>
+  </article>;
+}
 function breakdown(events, key, labels) { const counts = {}; events.forEach((event) => { const value = event[key] || "other"; counts[value] = (counts[value] || 0) + 1; }); return Object.entries(labels).map(([value,label]) => ({ label, value: counts[value] || 0 })).filter((row) => row.value); }
 function Breakdown({ title, rows }) { const max = Math.max(...rows.map((row) => row.value), 1); return <article className="analytics-card breakdown"><h2>{title}</h2>{rows.length ? rows.map((row) => <div key={row.label}><span><b>{row.label}</b><strong>{row.value}</strong></span><i><em style={{ width: `${row.value / max * 100}%` }} /></i></div>) : <p className="mini-empty">لا توجد بيانات بعد.</p>}</article>; }
 function aggregateByDay(events, days) { const result = []; const actualDays = Math.min(days, 30); for (let offset = actualDays - 1; offset >= 0; offset--) { const date = new Date(); date.setHours(0,0,0,0); date.setDate(date.getDate() - offset); const key = date.toISOString().slice(0,10); result.push({ key, label: new Intl.DateTimeFormat("ar-SA", { day: "numeric", month: "short" }).format(date), views: 0, leads: 0 }); } events.forEach((event) => { const date = event.created_at?.toDate?.(); if (!date) return; const key = new Date(date.getFullYear(), date.getMonth(), date.getDate()).toISOString().slice(0,10); const day = result.find((item) => item.key === key); if (day && event.event_name === "form_view") day.views++; if (day && event.event_name === "generate_lead") day.leads++; }); result.max = Math.max(...result.flatMap((day) => [day.views, day.leads]), 1); return result; }
