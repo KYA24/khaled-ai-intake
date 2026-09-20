@@ -15,11 +15,13 @@ import {
   onSnapshot,
   orderBy,
   query,
+  runTransaction,
   serverTimestamp,
   setDoc,
   updateDoc,
 } from "firebase/firestore";
 import { getAnalytics, isSupported, logEvent } from "firebase/analytics";
+import { buildIntakePayload } from "./intakeSubmission";
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
@@ -33,6 +35,7 @@ const configured = Boolean(firebaseConfig.apiKey && firebaseConfig.projectId),
   app = configured ? initializeApp(firebaseConfig) : null,
   auth = app ? getAuth(app) : null,
   db = app ? getFirestore(app) : null;
+export { auth };
 let analyticsPromise;
 const field = (value) => {
     if (value === null) return { nullValue: null };
@@ -46,23 +49,7 @@ const field = (value) => {
   bool = (value) => ({ booleanValue: Boolean(value) });
 export async function submitIntake(values, visit) {
   if (!configured) throw new Error("firebase-not-configured");
-  const payload = {
-      ...values,
-      organization_name:
-        values.customer_type === "organization_or_project_owner"
-          ? values.organization_name.trim()
-          : "",
-      full_name: `${values.first_name || ""} ${values.last_name || ""}`.trim(),
-      ai_need: values.request_description,
-      source: visit.source,
-      referrer: visit.referrer,
-      landing_page: visit.landingPage,
-      analytics: {
-        session_id: visit.sessionId,
-        source: visit.source,
-      },
-      status: "new",
-    },
+  const payload = buildIntakePayload(values, visit),
     documentId = crypto.randomUUID().replaceAll("-", ""),
     endpoint = `https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/(default)/documents:commit?key=${firebaseConfig.apiKey}`,
     controller = new AbortController(),
@@ -172,4 +159,17 @@ export function updateSubmission(id, changes) {
 export function deleteSubmission(id) {
   if (!db) throw new Error("Firebase غير مهيأ");
   return deleteDoc(doc(db, "intake_submissions", id));
+}
+export function subscribeLiveSessions(next, error) {
+  if (!db) return () => {};
+  return onSnapshot(query(collection(db, "live_sessions"), orderBy("date", "desc"), limit(200)), (snap) => next(snap.docs.map((d) => ({ id: d.id, ...d.data() }))), error);
+}
+export function saveLiveSession(session) {
+  if (!db) throw new Error("Firebase غير مهيأ");
+  const reference = doc(db, "live_sessions", session.id);
+  return runTransaction(db, async (transaction) => {
+    const existing = await transaction.get(reference);
+    if (existing.exists()) throw new Error("live-session-duplicate");
+    transaction.set(reference, { ...session, updated_at: serverTimestamp() });
+  });
 }

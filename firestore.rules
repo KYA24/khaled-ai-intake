@@ -6,12 +6,16 @@ service cloud.firestore {
       allow read: if isOwner();
       allow update: if isOwner();
       allow delete: if isOwner();
-      allow create: if request.resource.data.keys().hasOnly(['first_name','last_name','full_name','customer_type','service_type','service_duration','organization_name','phone','email','preferred_contact_method','request_description','ai_need','submitted_at','source','referrer','landing_page','analytics','status'])
+      allow create: if request.resource.data.keys().hasOnly(['first_name','last_name','full_name','customer_type','service_type','service_duration','organization_name','phone','email','preferred_contact_method','request_description','description_mode','request_priority','ai_need','appointment_availability','appointment_notes','request_type','submitted_at','source','referrer','landing_page','analytics','status'])
+        && request.resource.data.keys().hasAll(['first_name','last_name','full_name','customer_type','service_type','service_duration','organization_name','phone','email','preferred_contact_method','request_description','description_mode','request_priority','ai_need','request_type','submitted_at','source','referrer','landing_page','analytics','status'])
         && request.resource.data.first_name is string && request.resource.data.first_name.size() >= 2 && request.resource.data.first_name.size() <= 60
         && request.resource.data.last_name is string && request.resource.data.last_name.size() <= 60
         && request.resource.data.full_name is string && request.resource.data.full_name.size() >= 3 && request.resource.data.full_name.size() <= 120
         && request.resource.data.customer_type in ['individual','organization_or_project_owner']
         && request.resource.data.service_type in ['short_session','deep_session','service']
+        && request.resource.data.request_type == 'standard'
+        && (!('appointment_availability' in request.resource.data) || (request.resource.data.appointment_availability is string && request.resource.data.appointment_availability.size() <= 500))
+        && (!('appointment_notes' in request.resource.data) || (request.resource.data.appointment_notes is string && request.resource.data.appointment_notes.size() <= 1000))
         && (request.resource.data.service_duration in ['20-30_min','up_to_60_min'] || request.resource.data.service_duration == null)
         && request.resource.data.organization_name is string && request.resource.data.organization_name.size() <= 160
         && request.resource.data.phone is string && request.resource.data.phone.size() <= 25
@@ -19,8 +23,19 @@ service cloud.firestore {
         && request.resource.data.preferred_contact_method in ['whatsapp','call','email']
         && ((request.resource.data.preferred_contact_method in ['whatsapp','call'] && request.resource.data.phone.size() >= 9)
           || (request.resource.data.preferred_contact_method == 'email' && request.resource.data.email.size() >= 5))
-        && request.resource.data.request_description is string && request.resource.data.request_description.size() >= 15 && request.resource.data.request_description.size() <= 5000
-        && request.resource.data.ai_need is string && request.resource.data.ai_need.size() >= 15 && request.resource.data.ai_need.size() <= 5000
+        && request.resource.data.description_mode in ['with_description','without_description']
+        && request.resource.data.request_priority in ['medium','low']
+        && request.resource.data.request_description is string
+        && request.resource.data.ai_need is string
+        && ((request.resource.data.description_mode == 'with_description'
+            && request.resource.data.request_priority == 'medium'
+            && request.resource.data.request_description.size() >= 15
+            && request.resource.data.request_description.size() <= 5000
+            && request.resource.data.ai_need == request.resource.data.request_description)
+          || (request.resource.data.description_mode == 'without_description'
+            && request.resource.data.request_priority == 'low'
+            && request.resource.data.request_description == ''
+            && request.resource.data.ai_need == ''))
         && request.resource.data.submitted_at == request.time
         && request.resource.data.source in ['tiktok','linkedin','live','direct','referral','other']
         && request.resource.data.referrer is string && request.resource.data.referrer.size() <= 1000
@@ -37,15 +52,18 @@ service cloud.firestore {
       allow read: if isOwner();
       allow update, delete: if false;
       allow create: if request.resource.data.keys().hasOnly(['event_name','session_id','customer_type','service_type','form_step','source','created_at'])
-        && request.resource.data.event_name in ['form_view','customer_type_selected','service_type_selected','request_started','contact_step_reached','generate_lead']
+        && request.resource.data.event_name in ['form_view','customer_type_selected','service_type_selected','description_mode_selected','request_started','contact_step_reached','generate_lead']
         && request.resource.data.session_id is string
         && request.resource.data.session_id.size() >= 20
         && request.resource.data.session_id.size() <= 80
         && (request.resource.data.customer_type == null || request.resource.data.customer_type in ['individual','organization_or_project_owner'])
         && (request.resource.data.service_type == null || request.resource.data.service_type in ['short_session','deep_session','service'])
-        && (request.resource.data.form_step == null || request.resource.data.form_step in ['1','2','3','4'])
+        && (request.resource.data.form_step == null || request.resource.data.form_step in ['1','2','3','4','5'])
         && (request.resource.data.source == null || request.resource.data.source in ['tiktok','linkedin','live','direct','referral','other'])
         && request.resource.data.created_at == request.time;
+    }
+    match /live_sessions/{session} {
+      allow read, write: if isOwner();
     }
   }
 }

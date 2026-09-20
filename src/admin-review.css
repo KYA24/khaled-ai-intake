@@ -860,3 +860,136 @@
     animation: none;
   }
 }
+/* Keep the review workflow visible: the drawer now contains the AI draft editor. */
+.legacy-review-fields {
+  display: grid;
+}
+.inline-status{max-width:160px;border:1px solid var(--line);border-radius:10px;background:#fff;padding:8px 9px;color:var(--ink);cursor:pointer;font-size:12px}
+.quick-contact{display:flex;align-items:center;gap:7px;white-space:nowrap}.quick-contact a{display:grid;place-items:center;width:30px;height:30px;border-radius:8px;background:#eaf6ef;color:var(--accent)}.quick-contact small{color:var(--muted);font-size:11px}
+
+/* Orders table readability pass: presentation only; data and workflow stay unchanged. */
+.requests-head {
+  align-items: center;
+  padding-bottom: 2px;
+}
+.results-count {
+  padding: 6px 10px;
+  border: 1px solid #dce4de;
+  border-radius: 999px;
+  background: #f6f9f7;
+  color: #4e5d55;
+  font-size: 13px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.filters {
+  padding: 12px;
+  border: 1px solid #e1e5e1;
+  border-radius: 12px;
+  background: #f8faf8;
+  margin-bottom: 22px;
+}
+.search,
+.filter-control {
+  min-width: 0;
+  border-color: #cfd7d1;
+}
+.requests-table-wrap {
+  max-height: min(65vh, 720px);
+  border: 1px solid #e0e4e0;
+  border-radius: 12px;
+  background: #fff;
+}
+.requests-table {
+  min-width: 1180px;
+}
+.requests-table th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 13px 12px;
+  background: #f7f9f7;
+  color: #59665f;
+  font-size: 13px;
+  font-weight: 700;
+}
+.requests-table th:nth-child(1) { width: 16%; }
+.requests-table th:nth-child(2) { width: 31%; }
+.requests-table th:nth-child(3) { width: 11%; }
+.requests-table th:nth-child(4) { width: 13%; }
+.requests-table th:nth-child(5) { width: 12%; }
+.requests-table th:nth-child(6) { width: 8%; }
+.requests-table th:nth-child(7) { width: 6%; }
+.requests-table th:nth-child(8) { width: 3%; }
+.requests-table td {
+  min-width: 0;
+  padding: 17px 12px;
+  font-size: 14px;
+  line-height: 1.55;
+}
+.requests-table tbody tr:nth-child(even) {
+  background: #fbfcfb;
+}
+.client-cell b {
+  font-size: 14px;
+}
+.client-cell small,
+.date-cell,
+.quick-contact small {
+  font-size: 12px;
+}
+.need-cell,
+.date-cell,
+.plain-tag,
+.priority-tag,
+.quick-contact {
+  white-space: nowrap;
+}
+.plain-tag,
+.priority-tag {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+.need-cell {
+  cursor: help;
+}
+.inline-status {
+  width: 100%;
+  max-width: 170px;
+  min-height: 38px;
+  border-color: #cfd7d1;
+  font-size: 13px;
+  font-weight: 600;
+}
+.priority-tag {
+  border: 1px solid #dfe5e0;
+  background: #f4f7f5;
+  color: #435249;
+  font-size: 12px;
+  font-weight: 650;
+}
+.quick-contact {
+  justify-content: flex-start;
+}
+.date-cell {
+  display: inline-block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+@media (max-width: 700px) {
+  .results-count { font-size: 12px; }
+  .filters { padding: 9px; margin-bottom: 14px; }
+  .request-mobile-card b { font-size: 14px; }
+  .request-mobile-card small,
+  .request-mobile-card p,
+  .mobile-card-foot { font-size: 12px; }
+  .request-mobile-card .inline-status {
+    width: auto;
+    min-height: 36px;
+    font-size: 12px;
+  }
+}

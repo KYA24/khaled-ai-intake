@@ -37,7 +37,11 @@ import {
   subscribeAnalyticsEvents,
   subscribeSubmissions,
   updateSubmission,
+  saveLiveSession,
+  subscribeLiveSessions,
 } from "./firebase";
+import { LIVE_REPORT_JSON_SCHEMA, LIVE_REPORT_JSON_TEMPLATE, prepareLiveSessionImport, summarizeSessions, derivedMetrics, normalizeAudienceDistribution } from "./liveReports";
+import { nextIntakeStep, previousIntakeStep, visibleIntakeProgress } from "./intakeFlow";
 import { getVisitContext, trackFunnelEvent } from "./analytics";
 import "./styles.css";
 import "./enhancements.css";
@@ -45,10 +49,16 @@ import "./motion.css";
 import "./intro-hold.css";
 import "./admin-review.css";
 import "./admin-analytics.css";
+import { focusTimeline } from "./analyticsTimeline";
+import { draftAIConfigured, generateDraftMessage } from "./draftAI";
 import "./premium-intake.css";
 import "./intake-refinement.css";
+import "./liveReports.css";
 
 const OWNER_EMAIL = "k.alateeq.cis@gmail.com";
+const PORTFOLIO_URL = import.meta.env.VITE_PORTFOLIO_URL || "https://khaled-alateeq.netlify.app";
+const BOOKING_URL = import.meta.env.VITE_BOOKING_URL || "";
+const LIVE_REPORT_JSON_SCHEMA_TEXT = JSON.stringify(LIVE_REPORT_JSON_SCHEMA, null, 2);
 const initial = {
   full_name: "",
   first_name: "",
@@ -61,6 +71,8 @@ const initial = {
   email: "",
   preferred_contact_method: "",
   request_description: "",
+  description_mode: "",
+  request_priority: "",
 };
 const contactOptions = [
   { v: "whatsapp", l: "واتساب", I: MessageCircle },
@@ -443,7 +455,8 @@ function LegacyIntakeApp() {
 }
 function IntakeApp() {
   const [intro, setIntro] = useState(true), [step, setStep] = useState(1), [data, setData] = useState(initial), [showConsultation, setShowConsultation] = useState(false), [errors, setErrors] = useState({}), [sending, setSending] = useState(false), [done, setDone] = useState(false), [failed, setFailed] = useState("");
-  const panel = useRef(null), total = 4;
+  const panel = useRef(null), total = 5;
+  const visibleProgress = visibleIntakeProgress(step, data.description_mode);
   useEffect(() => {
     // Remove root-scoped workers/caches left by older deployments. The admin
     // PWA is scoped to /admin/ and its cache remains intact.
@@ -469,14 +482,15 @@ function IntakeApp() {
   }, []);
   useEffect(() => { const timer = setTimeout(() => setIntro(false), 3850); return () => clearTimeout(timer); }, []);
   useEffect(() => { if (!intro) setTimeout(() => panel.current?.querySelector("input,textarea,button")?.focus(), 340); }, [step, intro]);
-  useEffect(() => { if (step === 4) trackFunnelEvent("contact_step_reached", data, 4); }, [step]);
+  useEffect(() => { if (step === 5) trackFunnelEvent("contact_step_reached", data, 5); }, [step]);
   const set = (key, value) => { setData((current) => ({ ...current, [key]: value })); setErrors((current) => ({ ...current, [key]: "" })); setFailed(""); };
   const validate = () => {
     const nextErrors = {};
     if (step === 1 && !data.customer_type) nextErrors.customer_type = "اختر واحد من الخيارين";
     if (step === 2 && !data.service_type) nextErrors.service_type = "اختر النوع الأقرب لاحتياجك";
-    if (step === 3 && data.request_description.trim().length < 15) nextErrors.request_description = "اكتب تفاصيل أكثر، حتى لو بس بجملة";
-    if (step === 4) {
+    if (step === 3 && !data.description_mode) nextErrors.description_mode = "اختر طريقة رفع الطلب";
+    if (step === 4 && data.description_mode === "with_description" && data.request_description.trim().length < 15) nextErrors.request_description = "اكتب تفاصيل أكثر، حتى لو بس بجملة";
+    if (step === 5) {
       if (data.full_name.trim().length < 3) nextErrors.full_name = "اكتب اسمك";
       if (!data.preferred_contact_method) nextErrors.preferred_contact_method = "اختر طريقة التواصل";
       if (["whatsapp", "call"].includes(data.preferred_contact_method)) {
@@ -487,20 +501,21 @@ function IntakeApp() {
     }
     setErrors(nextErrors); return Object.keys(nextErrors).length === 0;
   };
-  const next = () => { if (validate()) setStep((current) => Math.min(total, current + 1)); };
-  const back = () => { setErrors({}); setFailed(""); setStep((current) => Math.max(1, current - 1)); };
+  const next = () => { if (validate()) setStep((current) => nextIntakeStep(current, data.description_mode)); };
+  const back = () => { setErrors({}); setFailed(""); setStep((current) => previousIntakeStep(current, data.description_mode)); };
   const chooseCustomer = (value) => { set("customer_type", value); trackFunnelEvent("customer_type_selected", { ...data, customer_type: value }, 1); setTimeout(() => setStep(2), 260); };
   const chooseService = (value, duration) => { setData((current) => ({ ...current, service_type: value, service_duration: duration })); setErrors((current) => ({ ...current, service_type: "" })); trackFunnelEvent("service_type_selected", { ...data, service_type: value }, 2); setTimeout(() => setStep(3), 260); };
+  const chooseDescriptionMode = (value) => { setData((current) => ({ ...current, description_mode: value, request_priority: value === "with_description" ? "medium" : "low", request_description: value === "without_description" ? "" : current.request_description })); trackFunnelEvent("description_mode_selected", { ...data, description_mode: value }, 3); setTimeout(() => setStep(nextIntakeStep(3, value)), 260); };
   const submit = async () => {
     if (step !== total || !validate()) return;
     setSending(true); setFailed("");
-    try { const parts = data.full_name.trim().split(/\s+/); await submitIntake({ ...data, first_name: parts[0], last_name: parts.slice(1).join(" "), request_description: data.request_description.trim(), phone: ["whatsapp", "call"].includes(data.preferred_contact_method) ? data.phone.trim() : "", email: data.preferred_contact_method === "email" ? data.email.trim().toLowerCase() : "" }, getVisitContext()); await trackFunnelEvent("generate_lead", data, 4); setDone(true); }
+    try { const parts = data.full_name.trim().split(/\s+/); await submitIntake({ ...data, first_name: parts[0], last_name: parts.slice(1).join(" "), request_description: data.request_description.trim(), phone: ["whatsapp", "call"].includes(data.preferred_contact_method) ? data.phone.trim() : "", email: data.preferred_contact_method === "email" ? data.email.trim().toLowerCase() : "" }, getVisitContext()); await trackFunnelEvent("generate_lead", data, 5); setDone(true); }
     catch (error) { console.error(error); setFailed("ما وصل الطلب. تأكد من اتصالك وجرّب مرة ثانية."); }
     finally { setSending(false); }
   };
   if (intro) return <Intro />;
   if (done) return <Success data={data} />;
-  return <main className="shell"><div className="ambient-glow" aria-hidden="true" /><header><div className="brand"><span className="brand-mark"><Sparkles size={16} /></span><span>AI · WORKFLOW</span></div><span className="count">{step} من {total}</span></header><div className="progress"><span style={{ width: `${step * 25}%` }} /></div>
+  return <main className="shell"><div className="ambient-glow" aria-hidden="true" /><header><div className="brand"><span className="brand-mark"><Sparkles size={16} /></span><span>AI · WORKFLOW</span></div><span className="count">{visibleProgress.step} من {visibleProgress.total}</span></header><a className="portfolio-cta" href={PORTFOLIO_URL} target="_blank" rel="noreferrer">حاب تتعرف علي أكثر؟ استعرض البورتفوليو ↗</a><div className="progress"><span style={{ width: `${(visibleProgress.step * 100) / visibleProgress.total}%` }} /></div>
     <form onSubmit={(event) => event.preventDefault()} onInput={triggerTypingFx} noValidate><section key={step} className="step" ref={panel}>
       {step === 1 && <><div className="availability"><i />فتح المواعيد والخدمات قريبًا</div><p className="eyebrow">خطوة ١</p><h1>من أنت؟</h1><div className="choices two identity-choices">
         <Choice icon={UserRound} selected={data.customer_type === "individual"} onClick={() => chooseCustomer("individual")} className={`choice identity-choice ${data.customer_type === "individual" ? "selected" : ""}`}>فرد</Choice>
@@ -511,8 +526,9 @@ function IntakeApp() {
         {showConsultation && <div className="consultation-options reveal"><button type="button" className={data.service_type === "short_session" ? "selected" : ""} onClick={() => chooseService("short_session", "20-30_min")}><strong>قصيرة</strong><span>20–30 دقيقة</span></button><button type="button" className={data.service_type === "deep_session" ? "selected" : ""} onClick={() => chooseService("deep_session", "up_to_60_min")}><strong>معمقة</strong><span>حتى 60 دقيقة</span></button></div>}
         <ServiceChoice icon={BriefcaseBusiness} title="خدمة" selected={data.service_type === "service"} onClick={() => chooseService("service", null)}>تنفيذ موقع، Dashboard، أداة AI، Portfolio، Workflow، نظام داخلي، أو حل رقمي مشابه.</ServiceChoice>
       </div>{errors.service_type && <small className="group-error">{errors.service_type}</small>}</>}
-      {step === 3 && <><p className="eyebrow">التفاصيل</p><h1>{data.service_type === "service" ? "وش الشيء اللي ودك أسويه لك؟" : "وش الموضوع اللي ودك نناقشه؟"}</h1><p className="helper">{data.service_type === "service" ? "اشرح الفكرة باختصار: وش تبغى تبني؟ لمين؟ وش النتيجة اللي تتوقعها؟" : "اكتب لي باختصار وش وضعك الحالي، وش القرار أو النتيجة اللي ودك تطلع فيها من الجلسة."}</p>{data.service_type === "service" && <div className="example-list"><span>موقع</span><span>Dashboard</span><span>أداة AI</span><span>Portfolio</span><span>Workflow</span><span>نظام داخلي</span><span>فكرة أخرى</span></div>}<label className="field textarea"><span>وصف الطلب</span><textarea name="request_description" rows="6" placeholder={data.service_type === "service" ? "مثال: أبي Dashboard لفريقي تجمع المهام والمشاريع وتوضح حالة كل مشروع بشكل واضح." : "مثال: عندي مشروع صغير وأستخدم ChatGPT يوميًا، لكن أبي أعرف أفضل طريقة أنظم فيها Workflow وأعرف وش الأشياء اللي فعلًا تستاهل AI."} value={data.request_description} onChange={(event) => { if (!data.request_description) trackFunnelEvent("request_started", data, 3); set("request_description", event.target.value); }} aria-invalid={Boolean(errors.request_description)} />{errors.request_description && <small>{errors.request_description}</small>}</label>{data.service_type === "service" && <p className="qualification-note"><CircleDashed size={17} />قبل أي تنفيذ، نسوي مكالمة قصيرة تقريبًا 10 دقائق لفهم الطلب والتأكد أني أقدر أخدمك فيه. بعدها نتفق على الخطوة المناسبة.</p>}</>}
-      {step === 4 && <><p className="eyebrow">آخر خطوة</p><h1>كيف نتواصل معك؟</h1><div className="stack"><Field label="الاسم الكامل" name="full_name" autoComplete="name" value={data.full_name} onChange={(event) => set("full_name", event.target.value)} error={errors.full_name} />{data.customer_type === "organization_or_project_owner" && <div className="reveal"><Field label="اسم الجهة أو المشروع (اختياري)" name="organization_name" autoComplete="organization" value={data.organization_name} onChange={(event) => set("organization_name", event.target.value)} /></div>}<div><span className="field-label">طريقة التواصل المفضلة</span><div className="choices contact">{contactOptions.map(({ v, l, I }) => <Choice key={v} icon={I} selected={data.preferred_contact_method === v} onClick={() => set("preferred_contact_method", v)}>{l}</Choice>)}</div>{errors.preferred_contact_method && <small className="group-error">{errors.preferred_contact_method}</small>}</div>{["whatsapp", "call"].includes(data.preferred_contact_method) && <div className="reveal"><Field label={data.preferred_contact_method === "whatsapp" ? "رقم WhatsApp" : "رقم الجوال"} name="phone" type="tel" dir="ltr" inputMode="tel" autoComplete="tel" value={data.phone} onChange={(event) => set("phone", event.target.value)} error={errors.phone} /></div>}{data.preferred_contact_method === "email" && <div className="reveal"><Field label="البريد الإلكتروني" name="email" type="email" dir="ltr" inputMode="email" autoComplete="email" placeholder="name@example.com" value={data.email} onChange={(event) => set("email", event.target.value)} error={errors.email} /></div>}</div></>}
+      {step === 3 && <><p className="eyebrow">خطوة ٣</p><h1>كيف تبي ترفع طلبك؟</h1><p className="helper">إضافة وصف مختصر تساعدنا نفهم احتياجك بسرعة، لذلك تكون أولوية الطلب معها متوسطة. الطلب بدون وصف تكون أولويته أقل.</p><div className="choices two description-choices"><Choice icon={FileText} selected={data.description_mode === "with_description"} onClick={() => chooseDescriptionMode("with_description")}>مع وصف — أولوية متوسطة</Choice><Choice icon={ArrowLeft} selected={data.description_mode === "without_description"} onClick={() => chooseDescriptionMode("without_description")}>بدون وصف — أولوية أقل</Choice></div>{errors.description_mode && <small className="group-error">{errors.description_mode}</small>}</>}
+      {step === 4 && data.description_mode === "with_description" && <><p className="eyebrow">التفاصيل</p><h1>{data.service_type === "service" ? "وش الشيء اللي ودك أسويه لك؟" : "وش الموضوع اللي ودك نناقشه؟"}</h1><p className="helper">كل ما كان الوصف أوضح، قدرنا نفهم طلبك أسرع.</p><label className="field textarea"><span>وصف الطلب</span><textarea name="request_description" rows="6" placeholder="اكتب التفاصيل هنا" value={data.request_description} onChange={(event) => { if (!data.request_description) trackFunnelEvent("request_started", data, 4); set("request_description", event.target.value); }} aria-invalid={Boolean(errors.request_description)} />{errors.request_description && <small>{errors.request_description}</small>}</label></>}
+      {step === 5 && <><p className="eyebrow">آخر خطوة</p><h1>كيف نتواصل معك؟</h1><div className="stack"><Field label="الاسم الكامل" name="full_name" autoComplete="name" value={data.full_name} onChange={(event) => set("full_name", event.target.value)} error={errors.full_name} />{data.customer_type === "organization_or_project_owner" && <div className="reveal"><Field label="اسم الجهة أو المشروع (اختياري)" name="organization_name" autoComplete="organization" value={data.organization_name} onChange={(event) => set("organization_name", event.target.value)} /></div>}<div><span className="field-label">طريقة التواصل المفضلة</span><div className="choices contact">{contactOptions.map(({ v, l, I }) => <Choice key={v} icon={I} selected={data.preferred_contact_method === v} onClick={() => set("preferred_contact_method", v)}>{l}</Choice>)}</div>{errors.preferred_contact_method && <small className="group-error">{errors.preferred_contact_method}</small>}</div>{["whatsapp", "call"].includes(data.preferred_contact_method) && <div className="reveal"><Field label={data.preferred_contact_method === "whatsapp" ? "رقم WhatsApp" : "رقم الجوال"} name="phone" type="tel" dir="ltr" inputMode="tel" autoComplete="tel" value={data.phone} onChange={(event) => set("phone", event.target.value)} error={errors.phone} /></div>}{data.preferred_contact_method === "email" && <div className="reveal"><Field label="البريد الإلكتروني" name="email" type="email" dir="ltr" inputMode="email" autoComplete="email" placeholder="name@example.com" value={data.email} onChange={(event) => set("email", event.target.value)} error={errors.email} /></div>}</div></>}
     </section>{failed && <div className="submit-error" role="alert">{failed}</div>}<footer>{step > 1 ? <button type="button" className="back" onClick={back}><ArrowRight size={18} /> رجوع</button> : <span />}<button type="button" className="primary" onClick={step === total ? submit : next} disabled={sending}>{sending ? <><span className="spinner" />جاري الإرسال</> : step === total ? <>إرسال الطلب <ArrowLeft size={18} /></> : <>التالي <ArrowLeft size={18} /></>}</button></footer></form><p className="privacy">بياناتك لفهم طلبك والتواصل معك فقط.</p></main>;
 }
 function Intro() {
@@ -613,6 +629,7 @@ function AdminApp() {
   );
   useEffect(() => {
     if (auth.user?.email !== OWNER_EMAIL) return;
+    if (window.location.pathname.startsWith("/admin/live-reports")) return;
     if (window.location.pathname.startsWith("/admin/analytics"))
       return subscribeAnalyticsEvents(setAnalyticsEvents, (e) => setAnalyticsError(e.message));
     return subscribeSubmissions(setRows, (e) => setDataError(e.message));
@@ -646,6 +663,8 @@ function AdminApp() {
         </section>
       </main>
     );
+  if (window.location.pathname.startsWith("/admin/live-reports"))
+    return <LiveReports user={auth.user} />;
   if (window.location.pathname.startsWith("/admin/analytics"))
     return <AnalyticsDashboard user={auth.user} events={analyticsEvents} error={analyticsError} />;
   const filtered = rows
@@ -698,8 +717,10 @@ function AdminApp() {
             >
               <option value="all">كل الحالات</option>
               <option value="new">جديد</option>
-              <option value="reviewing">قيد المراجعة</option>
-              <option value="reviewed">مكتمل</option>
+              <option value="two_days_old">قديم له يومين</option>
+              <option value="contacted">تم التواصل معه</option>
+              <option value="appointment_booked">تم حجز موعد</option>
+              <option value="consultation_delivered">تم تقديم الاستشارة</option>
             </select>
           </label>
           <label className="filter-control">
@@ -752,6 +773,8 @@ function AdminApp() {
                 <th>الطلب</th>
                 <th>النوع</th>
                 <th>الحالة</th>
+                <th>الوصف / الأولوية</th>
+                <th>التواصل</th>
                 <th>التاريخ</th>
                 <th aria-label="فتح" />
               </tr>
@@ -762,6 +785,7 @@ function AdminApp() {
                   key={row.id}
                   row={row}
                   onOpen={() => setSelectedId(row.id)}
+                  onStatusChange={async (id, status) => { try { await updateSubmission(id, { status }); } catch { setDataError("تعذر تحديث الحالة"); } }}
                 />
               ))}
             </tbody>
@@ -773,6 +797,7 @@ function AdminApp() {
               key={row.id}
               row={row}
               onOpen={() => setSelectedId(row.id)}
+              onStatusChange={async (id, status) => { try { await updateSubmission(id, { status }); } catch { setDataError("تعذر تحديث الحالة"); } }}
             />
           ))}
         </div>
@@ -788,6 +813,70 @@ function AdminApp() {
     </main>
   );
 }
+function LiveReports({ user }) {
+  const [sessions, setSessions] = useState([]), [tab, setTab] = useState("overview"), [selectedId, setSelectedId] = useState(null), [json, setJson] = useState(""), [message, setMessage] = useState(""), [preview, setPreview] = useState([]), [search, setSearch] = useState("");
+  useEffect(() => subscribeLiveSessions(setSessions, (e) => setMessage(e.message)), []);
+  const selected = sessions.find((s) => s.id === selectedId) || sessions[0], summary = summarizeSessions(sessions);
+  const filteredSessions = sessions.filter((s) => `${s.title} ${s.date} ${s.id}`.toLowerCase().includes(search.toLowerCase()));
+  const qualitative = sessions.filter((session) => session.observations?.length || session.insights?.length || session.report_sections?.decision_summary?.length);
+  const validateImport = () => { setMessage(""); setPreview([]); const result = prepareLiveSessionImport(json, sessions.map((session) => session.id)); if (result.errors.length) return setMessage(result.errors.join(" · ")); setPreview(result.items); };
+  const importJson = async () => { if (!preview.length) return validateImport(); setMessage(""); try { for (const item of preview) await saveLiveSession(item); setJson(""); setPreview([]); setMessage("تم حفظ التقرير وتحديث لوحة البيانات"); setTab("sessions"); } catch (error) { setMessage(error.message === "live-session-duplicate" ? "هذا المعرّف موجود مسبقًا. حدّث القائمة وغيّر المعرّف." : "تعذر حفظ التقرير. تحقق من الاتصال والصلاحيات."); } };
+  const loadFile = async (event) => { const file=event.target.files?.[0]; if (!file) return; if (!file.name.endsWith(".json")) return setMessage("اختر ملف JSON فقط"); setJson(await file.text()); setPreview([]); setMessage(""); };
+  const copyText = async (text, successMessage) => { try { await navigator.clipboard.writeText(text); setMessage(successMessage); } catch { setMessage("تعذر النسخ تلقائيًا. حدّد النص وانسخه يدويًا."); } };
+  const copyAiTemplate = () => copyText(LIVE_REPORT_JSON_TEMPLATE, "تم نسخ قالب JSON صالح");
+  const downloadText = (filename, text) => { const url = URL.createObjectURL(new Blob([text], { type: "application/json;charset=utf-8" })); const link = document.createElement("a"); link.href = url; link.download = filename; document.body.appendChild(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 0); setMessage(`تم تنزيل ${filename}`); };
+  const metric = (label, value, suffix="") => <article className="live-card"><small>{label}</small><strong>{value == null ? "—" : `${value.toLocaleString("ar-SA")}${suffix}`}</strong></article>;
+  return <main className="admin-shell"><AdminHeader user={user} /><section className="live-reports"><div className="live-head"><div><p className="admin-kicker">تحليل البثوث</p><h1>تقارير البثوث</h1><p className="live-muted">قراءات تشغيلية مبنية على التقارير المستوردة فقط.</p></div><button className="live-action" onClick={() => setTab("import")}>+ إضافة تقرير</button></div><nav className="live-tabs">{[["overview","نظرة عامة"],["sessions","البثوث"],["report","التقرير"],["insights","القراءات والقرارات"],["import","استيراد"]].map(([key,label]) => <button key={key} className={tab===key?"active":""} onClick={() => setTab(key)}>{label}</button>)}</nav>{message && <p className="live-status" role="status">{message}</p>}
+    {tab === "overview" && <><div className="live-grid">{metric("إجمالي البثوث",summary.count)}{metric("المشاهدات",summary.views)}{metric("المشاهدون الفريدون",summary.unique_viewers)}{metric("متوسط المشاهدة",summary.average_watch_seconds," ثانية")}{metric("Peak concurrent",summary.peak_concurrent)}{metric("متابعون جدد",summary.new_followers)}{metric("التعليقات",summary.comments)}{metric("الإعجابات",summary.likes)}</div>{sessions.length ? <><MetricLineChart sessions={sessions} /><div className="live-chart-grid">{[["المتابعون الجدد","new_followers"],["ذروة المشاهدين","peak_concurrent"],["متوسط مدة المشاهدة","average_watch_seconds"],["التعليقات","comments"],["الإعجابات","likes"]].map(([label,key]) => <SessionMetricChart key={key} sessions={sessions} label={label} metricKey={key} />)}</div></> : <section className="live-card live-panel"><h2>لا توجد تقارير بعد</h2><p className="live-muted">أضف أول تقرير JSON لبدء لوحة البثوث.</p></section>}</>}
+    {tab === "sessions" && <section><input className="live-search" type="search" placeholder="ابحث بالعنوان أو التاريخ أو المعرّف" value={search} onChange={(e)=>setSearch(e.target.value)} /><div className="live-session-list">{filteredSessions.length ? filteredSessions.map(s=><button className={`live-session ${selected?.id===s.id?"selected":""}`} key={s.id} onClick={()=>{setSelectedId(s.id);setTab("report")}}><span><b>{s.title}</b><small>{s.date} · {s.duration_minutes || "—"} دقيقة</small></span><span>{Number(s.metrics?.views||0).toLocaleString("ar-SA")} مشاهدة</span></button>) : <p className="live-muted">لا توجد بثوث مطابقة.</p>}</div></section>}
+    {tab === "report" && <section className="live-panel">{selected ? <><div className="live-card"><p className="admin-kicker">{selected.date}</p><h2>{selected.title}</h2><div className="live-grid">{metric("المشاهدات",selected.metrics?.views)}{metric("المشاهدون الفريدون",selected.metrics?.unique_viewers)}{metric("Peak concurrent",selected.metrics?.peak_concurrent)}{metric("متابعون جدد",selected.metrics?.new_followers)}</div></div><AudienceCharts audience={selected.audience}/><div className="live-report-columns"><LiveReportBlock title="الملاحظات" items={selected.observations}/><LiveReportBlock title="القراءات" items={selected.insights}/><LiveReportBlock title="اقتراحات البث القادم" items={selected.report_sections?.next_live_suggestions}/><LiveReportBlock title="أفكار المحتوى" items={selected.report_sections?.tofu_content_ideas}/><LiveReportBlock title="ملخص القرارات" items={selected.report_sections?.decision_summary}/><LiveReportBlock title="ملاحظات تنظيمية" items={selected.report_sections?.regulatory_notes}/></div><DerivedMetricsCard session={selected}/></> : <p className="live-muted">اختر بثًا من قسم البثوث.</p>}</section>}
+    {tab === "insights" && <section className="live-card"><h2>البيانات ← الملاحظة ← القراءة ← القرار</h2>{qualitative.length ? qualitative.map((session)=><div className="decision-flow" key={session.id}><span><b>البيانات</b>{session.metrics?.views != null ? `${session.metrics.views.toLocaleString("ar-SA")} مشاهدة` : "لا يوجد قياس رقمي مرتبط"}</span><span><b>الملاحظة</b>{formatLiveList(session.observations) || "لا توجد ملاحظات"}</span><span><b>القراءة</b>{formatLiveList(session.insights) || "لا توجد قراءة"}</span><span><b>القرار</b>{formatLiveList(session.report_sections?.decision_summary) || "يحتاج قرارًا"}</span></div>) : <p className="live-muted">لا توجد قراءات نوعية بعد.</p>}<p className="live-muted">تُعرض الإشارات المتكررة كفرص نوعية، ولا تتحول إلى نسب دون قياس صريح.</p></section>}
+    {tab === "import" && <section className="live-card live-import"><h2>إضافة تقرير JSON</h2><p className="live-muted">استخدم القالب، عبّئ القيم، ثم ارفع الملف أو الصق JSON. التحقق والمعاينة منفصلان عن الحفظ.</p><section className="live-template"><div className="live-template-head"><div><h3>القالب canonical</h3><p className="live-muted">JSON صالح ومتوافق مع مخطط تقارير TikTok Live الحالي.</p></div><div className="live-template-actions"><button type="button" className="live-copy" onClick={copyAiTemplate}>نسخ القالب</button><button type="button" className="live-copy" onClick={() => downloadText("tiktok-live-report-template.json", LIVE_REPORT_JSON_TEMPLATE)}>تنزيل القالب</button></div></div><textarea className="live-template-text" readOnly value={LIVE_REPORT_JSON_TEMPLATE} aria-label="قالب JSON canonical لتقرير TikTok Live" /><details className="live-schema"><summary>عرض مخطط التحقق</summary><p className="live-muted">الحقول الأساسية: <code>id</code> و<code>date</code> و<code>title</code> و<code>metrics</code> و<code>observations</code> و<code>insights</code>. القيم الرقمية غير السالبة، والتاريخ بصيغة YYYY-MM-DD.</p><div className="live-template-actions"><button type="button" className="live-copy" onClick={() => copyText(LIVE_REPORT_JSON_SCHEMA_TEXT, "تم نسخ مخطط التحقق")}>نسخ المخطط</button><button type="button" className="live-copy" onClick={() => downloadText("tiktok-live-report.schema.json", LIVE_REPORT_JSON_SCHEMA_TEXT)}>تنزيل المخطط</button></div><pre>{LIVE_REPORT_JSON_SCHEMA_TEXT}</pre></details></section><div className="live-import-divider"><span>إدخال التقرير</span></div><label className="live-file-label">رفع ملف JSON<input type="file" accept="application/json,.json" onChange={loadFile} /></label><label className="live-input-label" htmlFor="live-json-input">JSON التقرير</label><textarea id="live-json-input" value={json} onChange={e=>{setJson(e.target.value);setPreview([]);setMessage("")}} placeholder={'{"id":"live-001","date":"2026-09-17","title":"مثال","metrics":{"views":1200},"observations":[],"insights":[]'} aria-label="JSON التقرير المراد التحقق منه" />{preview.length > 0 && <LiveImportPreview items={preview} />}{preview.length === 0 && json && <p className="live-hint">اضغط «تحقق ومعاينة» لإظهار المخرج المنظم أسفل الإدخال.</p>}<div className="live-import-actions"><button className="live-action" onClick={importJson}>{preview.length ? "تأكيد وحفظ" : "تحقق ومعاينة"}</button>{(json || preview.length > 0) && <button className="live-copy" onClick={() => { setJson(""); setPreview([]); setMessage(""); }}>إلغاء</button>}</div></section>}
+  </section></main>;
+}
+function chartPoints(values, width=720, height=260) { const pad={left:52,right:20,top:18,bottom:38}, max=Math.max(...values,1), step=values.length>1?(width-pad.left-pad.right)/(values.length-1):0; return values.map((v,i)=>`${pad.left+i*step},${height-pad.bottom-(Number(v)||0)/max*(height-pad.top-pad.bottom)}`).join(" "); }
+function ChartGrid({ values, width=720, height=260 }) { const max=Math.max(...values,1), pad={left:52,right:20,top:18,bottom:38}; return [0,.25,.5,.75,1].map((r)=><g key={r}><line x1={pad.left} x2={width-pad.right} y1={height-pad.bottom-r*(height-pad.top-pad.bottom)} y2={height-pad.bottom-r*(height-pad.top-pad.bottom)} className="chart-grid"/><text x={pad.left-9} y={height-pad.bottom-r*(height-pad.top-pad.bottom)+4} textAnchor="end">{Math.round(max*r).toLocaleString("ar-SA")}</text></g>); }
+function MetricLineChart({ sessions }) { const ordered=[...sessions].sort((a,b)=>String(a.date).localeCompare(String(b.date))); const views=ordered.map(s=>Number(s.metrics?.views)||0), unique=ordered.map(s=>Number(s.metrics?.unique_viewers)||0), all=[...views,...unique]; return <section className="live-card live-chart-card"><div className="chart-heading"><div><h2>المشاهدات عبر الأيام</h2><p>مقارنة إجمالي المشاهدات بالمشاهدين الفريدين لكل بث</p></div><span className="chart-count">{ordered.length} بثوث</span></div><div className="live-line-chart"><svg viewBox="0 0 720 260" role="img" aria-label="مخطط المشاهدات والمشاهدين الفريدين"><ChartGrid values={all}/><polyline points={chartPoints(views)} className="broadcast-line views-line"/><polyline points={chartPoints(unique)} className="broadcast-line unique-line"/>{ordered.map((s,i)=>{const x=52+(ordered.length>1?i*648/(ordered.length-1):0); return <g key={s.id}><circle cx={x} cy={208-(views[i]/Math.max(...all,1))*190} r="5" className="chart-point views-point"><title>{`${s.title}: ${views[i].toLocaleString("ar-SA")} مشاهدة`}</title></circle><circle cx={x} cy={208-(unique[i]/Math.max(...all,1))*190} r="5" className="chart-point unique-point"><title>{`${s.title}: ${unique[i].toLocaleString("ar-SA")} مشاهد فريد`}</title></circle><text x={x} y="238" textAnchor="middle">{s.date}</text></g>})}</svg></div><div className="chart-legend"><span><i />المشاهدات</span><span><i className="unique-dot" />المشاهدون الفريدون</span></div></section>; }
+function SessionMetricChart({ sessions, label, metricKey }) { const ordered=[...sessions].sort((a,b)=>String(a.date).localeCompare(String(b.date))); const values=ordered.map(s=>Number(s.metrics?.[metricKey])||0); return <section className="live-card live-mini-chart"><div className="mini-chart-heading"><h3>{label}</h3><span>{Math.max(...values,0).toLocaleString("ar-SA")}</span></div><div className="live-line-chart"><svg viewBox="0 0 720 210" role="img" aria-label={`${label} لكل بث`}><ChartGrid values={values} height={210}/><polyline points={chartPoints(values,720,210)} className="broadcast-line metric-line"/>{ordered.map((s,i)=>{const x=52+(ordered.length>1?i*648/(ordered.length-1):0); return <circle key={s.id} cx={x} cy={172-(values[i]/Math.max(...values,1))*154} r="5" className="chart-point metric-point"><title>{`${s.title}: ${values[i].toLocaleString("ar-SA")}`}</title></circle>})}</svg></div></section>; }
+const audienceColors = ["#146c51", "#d87845", "#5963a9", "#b99a39", "#8a5c93", "#4d8797"];
+const audienceLabels = {
+  gender: { male: "ذكور", female: "إناث" },
+  age: { "18-24": "18–24", "25-34": "25–34", "35+": "+35" },
+  countries_or_regions: { "Saudi Arabia": "السعودية" },
+};
+function audienceLabel(group, key) { return audienceLabels[group]?.[key] || key.replaceAll("_", " "); }
+function AudienceEmpty() { return <div className="audience-empty"><span>—</span><p>لا توجد بيانات رقمية</p></div>; }
+function AudienceDonut({ entries, hasData }) {
+  if (!hasData) return <AudienceEmpty />;
+  let cursor = 0;
+  const gradient = entries.map((entry, index) => { const start = cursor; cursor += entry.share; return `${audienceColors[index % audienceColors.length]} ${start}% ${cursor}%`; }).join(", ");
+  return <div className="audience-donut-wrap"><div className="audience-donut" style={{ background: `conic-gradient(${gradient})` }} role="img" aria-label={entries.map((entry) => `${audienceLabel("gender", entry.key)} ${entry.percentage}%`).join("، ")}><span><b>{entries.length}</b><small>فئات</small></span></div><div className="audience-legend">{entries.map((entry,index)=><div key={entry.key}><i style={{background:audienceColors[index%audienceColors.length]}}/><span>{audienceLabel("gender",entry.key)}</span><b>{entry.percentage}%</b></div>)}</div></div>;
+}
+function AudienceBars({ group, entries, hasData }) {
+  if (!hasData) return <AudienceEmpty />;
+  return <div className="audience-bars">{entries.map((entry,index)=><div className="audience-bar" key={entry.key}><div><span>{audienceLabel(group,entry.key)}</span><b>{entry.percentage}%</b></div><i><em style={{width:`${entry.share}%`,background:audienceColors[index%audienceColors.length]}}/></i></div>)}</div>;
+}
+function AudienceCharts({ audience }) {
+  const gender=normalizeAudienceDistribution(audience?.gender), age=normalizeAudienceDistribution(audience?.age), countries=normalizeAudienceDistribution(audience?.countries_or_regions);
+  return <section className="live-card audience-card"><div className="audience-heading"><div><p className="admin-kicker">الجمهور</p><h2>توزيع الجمهور</h2></div><span>تظهر النسب عند توفر قياسات رقمية</span></div><div className="audience-grid"><article><h3>الجنس</h3><AudienceDonut {...gender}/></article><article><h3>الفئات العمرية</h3><AudienceBars group="age" {...age}/></article><article><h3>الدول والمناطق</h3><AudienceBars group="countries_or_regions" {...countries}/></article></div></section>;
+}
+const derivedMetricLabels = {
+  followConversion: "تحويل المتابعة",
+  commentIntensity: "كثافة التعليقات",
+  likeAffinity: "نسبة الإعجابات",
+  shareIntent: "نية المشاركة",
+  peakRetention: "احتفاظ الذروة",
+};
+function DerivedMetricsCard({ session }) {
+  const metrics=derivedMetrics(session);
+  return <section className="live-card live-panel derived-card"><h3>المؤشرات المشتقة</h3><div className="metric-pairs">{Object.entries(derivedMetricLabels).map(([key,label])=><span key={key}><b>{label}</b>{metrics[key] == null ? "—" : `${metrics[key].toLocaleString("ar-SA")}%`}</span>)}</div><details><summary>عرض JSON الخام</summary><button className="live-copy" onClick={()=>navigator.clipboard.writeText(JSON.stringify(session,null,2))}>نسخ JSON</button><pre>{JSON.stringify(session,null,2)}</pre></details></section>;
+}
+function LiveImportPreview({ items }) {
+  return <section className="live-preview" aria-live="polite"><div className="live-preview-head"><div><h3>مخرج التحقق والمعاينة</h3><p className="live-muted">لم يُحفظ بعد. راجع هذه البيانات ثم اضغط «تأكيد وحفظ».</p></div><strong>{items.length} تقرير</strong></div>{items.map((item) => <article className="live-preview-item" key={item.id}><div className="live-preview-title"><strong>{item.title}</strong><span dir="ltr">{item.date} · {item.id}</span></div><div className="live-preview-metrics">{[["المشاهدات","views"],["المشاهدون الفريدون","unique_viewers"],["متابعون جدد","new_followers"],["التعليقات","comments"]].map(([label,key]) => <span key={key}><small>{label}</small><b>{item.metrics?.[key] == null ? "—" : Number(item.metrics[key]).toLocaleString("ar-SA")}</b></span>)}</div>{(item.observations.length || item.insights.length) ? <p className="live-muted">{item.observations.length ? `ملاحظات: ${formatLiveList(item.observations)}` : ""}{item.insights.length ? `${item.observations.length ? " · " : ""}قراءات: ${formatLiveList(item.insights)}` : ""}</p> : null}</article>)}</section>;
+}
+function formatLiveItem(item) { if (item == null) return ""; if (typeof item === "string") return item; return item.text || item.title || item.label || JSON.stringify(item); }
+function formatLiveList(items) { return Array.isArray(items) ? items.map(formatLiveItem).filter(Boolean).join(" · ") : formatLiveItem(items); }
+function LiveReportBlock({ title, items }) { const list=Array.isArray(items)?items:items&&typeof items==="object"?Object.entries(items).map(([key,value])=>`${key}: ${formatLiveItem(value)}`):items?[items]:[]; if (!list.length) return null; return <section className="live-card"><h3>{title}</h3>{list.map((item,i)=><p className="live-insight" key={i}>{formatLiveItem(item)}</p>)}</section>; }
 function AdminLoading() {
   return (
     <main className="admin-login">
@@ -831,6 +920,7 @@ function AdminHeader({ user }) {
       <nav className="admin-nav" aria-label="التنقل في لوحة الإدارة">
         <a href="/admin" className={window.location.pathname === "/admin" || window.location.pathname === "/admin/" ? "active" : ""}><ListChecks size={16} /> الطلبات</a>
         <a href="/admin/analytics" className={window.location.pathname.startsWith("/admin/analytics") ? "active" : ""}><BarChart3 size={16} /> التحليلات</a>
+        <a href="/admin/live-reports" className={window.location.pathname.startsWith("/admin/live-reports") ? "active" : ""}><BarChart3 size={16} /> تحليل البثوث</a>
       </nav>
       <div className="admin-user">
         <span>
@@ -859,7 +949,7 @@ const serviceLabels = { short_session: "استشارة قصيرة", deep_session
 const customerLabels = { individual: "فرد", organization_or_project_owner: "جهة / صاحب مشروع" };
 
 function AnalyticsDashboard({ user, events, error }) {
-  const [range, setRange] = useState("30"), [source, setSource] = useState("all"), [customer, setCustomer] = useState("all"), [service, setService] = useState("all");
+  const [range, setRange] = useState("30"), [source, setSource] = useState("all"), [customer, setCustomer] = useState("all"), [service, setService] = useState("all"), [showFullTimeline, setShowFullTimeline] = useState(false);
   const cutoff = range === "all" ? 0 : Date.now() - Number(range) * 86400000;
   const filtered = events.filter((event) => {
     const time = event.created_at?.toMillis?.() || 0;
@@ -891,32 +981,40 @@ function AnalyticsDashboard({ user, events, error }) {
     {!filtered.length && !error ? <section className="analytics-empty"><BarChart3 /><h2>ما فيه بيانات ضمن الفلاتر الحالية</h2><p>تبدأ الأرقام بالظهور مع زيارات النموذج الجديدة.</p></section> : <>
       <section className="analytics-grid">
         <article className="analytics-card funnel-card"><h2>مسار النموذج</h2><div className="funnel-list">{funnelStages.map(([name,label], index) => { const value = count(name), previous = index ? count(funnelStages[index - 1][0]) : value, rate = previous ? Math.round(value / previous * 100) : null, drop = previous ? Math.max(previous - value, 0) : 0; return <div key={name}><span><b>{label}</b><small>{index ? `${rate ?? "N/A"}% من المرحلة السابقة · فقد ${drop}` : "نقطة البداية"}</small></span><strong>{value}</strong><i style={{ width: `${views ? Math.min(value / views * 100, 100) : 0}%` }} /></div>; })}</div></article>
-        <TimelineChart days={byDay} />
+        <TimelineChart days={showFullTimeline ? byDay : focusTimeline(byDay)} canExpand={focusTimeline(byDay).length < byDay.length} showFull={showFullTimeline} onToggleFull={() => setShowFullTimeline((value) => !value)} />
       </section>
       <section className="analytics-grid three"><Breakdown title="مصادر الزيارة" rows={breakdown(filtered.filter(e => e.event_name === "form_view"), "source", sourceLabels)} /><Breakdown title="الطلب على الخدمات" rows={breakdown(filtered.filter(e => e.event_name === "service_type_selected"), "service_type", serviceLabels)} /><Breakdown title="نوع العميل" rows={breakdown(filtered.filter(e => e.event_name === "customer_type_selected"), "customer_type", customerLabels)} /></section>
     </>}
   </main>;
 }
 function AnalyticsKpi({ label, value }) { return <article><small>{label}</small><strong>{value}</strong></article>; }
-function TimelineChart({ days }) {
-  const width = 720, height = 220, top = 18, bottom = 38, side = 18;
+function TimelineChart({ days, canExpand, showFull, onToggleFull }) {
+  const width = 720, height = 220, top = 18, bottom = 38, side = 52, end = 18;
   const plotHeight = height - top - bottom;
-  const plotWidth = width - side * 2;
+  const plotWidth = width - side - end;
   const x = (index) => side + (days.length > 1 ? index / (days.length - 1) * plotWidth : plotWidth / 2);
   const y = (value) => top + plotHeight - (value / days.max) * plotHeight;
   const points = (key) => days.map((day, index) => `${x(index)},${y(day[key])}`).join(" ");
   const area = `${side},${top + plotHeight} ${points("views")} ${side + plotWidth},${top + plotHeight}`;
   const labelIndexes = [...new Set([0, Math.round((days.length - 1) * .25), Math.round((days.length - 1) * .5), Math.round((days.length - 1) * .75), days.length - 1])];
+  const yTicks = [1, .5, 0];
   const totalViews = days.reduce((sum, day) => sum + day.views, 0);
   const totalLeads = days.reduce((sum, day) => sum + day.leads, 0);
+  const rangeLabel = days.length ? `من ${days[0].label} إلى ${days[days.length - 1].label}` : "";
   return <article className="analytics-card timeline-card">
     <header className="chart-heading">
-      <div><h2>الزيارات والطلبات</h2><p>اتجاه النشاط خلال الفترة المختارة</p></div>
+      <div><h2>الزيارات والطلبات</h2><p>اتجاه النشاط · {rangeLabel}</p></div>
       <div className="chart-totals"><span><b>{totalViews}</b> زيارة</span><span><b>{totalLeads}</b> طلب</span></div>
     </header>
     <div className="timeline-chart" role="img" aria-label={`مخطط الزيارات والطلبات: ${totalViews} زيارة و${totalLeads} طلب`}>
       <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
-        {[0, .5, 1].map((ratio) => <line key={ratio} className="chart-gridline" x1={side} x2={width - side} y1={top + plotHeight * ratio} y2={top + plotHeight * ratio} />)}
+        {yTicks.map((ratio) => {
+          const tickY = top + plotHeight * (1 - ratio);
+          return <g key={ratio}>
+            <line className="chart-gridline" x1={side} x2={width - end} y1={tickY} y2={tickY} />
+            <text className="chart-y-label" x={side - 10} y={tickY + 4} textAnchor="end">{Math.round(days.max * ratio).toLocaleString("ar-SA")}</text>
+          </g>;
+        })}
         <polygon className="visits-area" points={area} />
         <polyline className="visits-line" points={points("views")} />
         <polyline className="leads-line" points={points("leads")} />
@@ -927,7 +1025,7 @@ function TimelineChart({ days }) {
         {labelIndexes.map((index) => <text key={days[index].key} x={x(index)} y={height - 10} textAnchor={index === 0 ? "start" : index === days.length - 1 ? "end" : "middle"}>{days[index].label}</text>)}
       </svg>
     </div>
-    <div className="chart-legend"><span><i />زيارات</span><span><i className="lead" />طلبات</span></div>
+    <footer className="chart-footer"><div className="chart-legend"><span><i />زيارات</span><span><i className="lead" />طلبات</span></div>{canExpand || showFull ? <button type="button" className="timeline-range-toggle" onClick={onToggleFull}>{showFull ? "التركيز على النشاط" : "عرض الفترة كاملة"}</button> : null}</footer>
   </article>;
 }
 function breakdown(events, key, labels) { const counts = {}; events.forEach((event) => { const value = event[key] || "other"; counts[value] = (counts[value] || 0) + 1; }); return Object.entries(labels).map(([value,label]) => ({ label, value: counts[value] || 0 })).filter((row) => row.value); }
@@ -1001,11 +1099,17 @@ function Stat({ icon: Icon, label, value, tone }) {
 }
 const stateLabels = {
   new: "جديد",
-  reviewing: "قيد المراجعة",
-  reviewed: "مكتمل",
+  two_days_old: "قديم له يومين",
+  contacted: "تم التواصل معه",
+  appointment_booked: "تم حجز موعد",
+  consultation_delivered: "تم تقديم الاستشارة",
 };
+const requestStates = Object.keys(stateLabels);
 function requestState(row) {
-  return ["reviewing", "reviewed"].includes(row.status) ? row.status : "new";
+  if (requestStates.includes(row.status)) return row.status;
+  if (row.status === "reviewing") return "contacted";
+  if (["reviewed", "approved"].includes(row.status)) return "consultation_delivered";
+  return "new";
 }
 function formatDate(row, withTime = false) {
   const date = row.submitted_at?.toDate?.();
@@ -1031,7 +1135,17 @@ function customerTypeLabel(row) {
   return ["organization", "organization_or_project_owner"].includes(row.customer_type) ? "جهة / مشروع" : "فرد";
 }
 function serviceTypeLabel(row) {
-  return { short_session: "جلسة قصيرة", deep_session: "جلسة معمقة", service: "خدمة" }[row.service_type] || "طلب سابق";
+  return { short_session: "جلسة قصيرة", deep_session: "جلسة معمقة", service: "خدمة", appointment: "طلب حجز موعد" }[row.service_type] || "طلب سابق";
+}
+function whatsappNumber(phone) {
+  const digits = String(phone || "").replace(/\D/g, "");
+  if (/^05\d{8}$/.test(digits)) return `966${digits.slice(1)}`;
+  if (/^5\d{8}$/.test(digits)) return `966${digits}`;
+  return digits;
+}
+function buildWhatsAppUrl(row, message) {
+  if (!row?.phone) return "";
+  return `https://wa.me/${whatsappNumber(row.phone)}?text=${encodeURIComponent(message || "")}`;
 }
 function StatusBadge({ row }) {
   const state = requestState(row);
@@ -1042,7 +1156,7 @@ function StatusBadge({ row }) {
     </span>
   );
 }
-function RequestRow({ row, onOpen }) {
+function RequestRow({ row, onOpen, onStatusChange }) {
   return (
     <tr
       onClick={onOpen}
@@ -1059,7 +1173,7 @@ function RequestRow({ row, onOpen }) {
         </div>
       </td>
       <td>
-        <p className="need-cell">{requestDescription(row)}</p>
+        <p className="need-cell" title={requestDescription(row)}>{requestDescription(row)}</p>
       </td>
       <td>
         <span className="plain-tag">
@@ -1067,10 +1181,21 @@ function RequestRow({ row, onOpen }) {
         </span>
       </td>
       <td>
-        <StatusBadge row={row} />
+        <select className="inline-status" value={requestState(row)} onClick={(e) => e.stopPropagation()} onChange={(e) => onStatusChange(row.id, e.target.value)} aria-label={`تغيير حالة ${displayName(row)}`}>
+          {requestStates.map((state) => <option key={state} value={state}>{stateLabels[state]}</option>)}
+        </select>
+      </td>
+      <td><span className={`priority-tag ${row.request_priority || "low"}`}>{row.description_mode === "with_description" ? "بوصف · متوسطة" : "بدون وصف · أقل"}</span></td>
+      <td onClick={(e) => e.stopPropagation()}>
+        <div className="quick-contact">
+          {row.preferred_contact_method === "whatsapp" && row.phone && <a href={`https://wa.me/${whatsappNumber(row.phone)}`} target="_blank" rel="noreferrer" title="فتح واتساب"><MessageCircle size={17} /></a>}
+          {row.preferred_contact_method === "email" && row.email && <a href={`mailto:${row.email}`} title="فتح البريد"><Mail size={17} /></a>}
+          {row.preferred_contact_method === "call" && row.phone && <a href={`tel:${row.phone}`} dir="ltr" title="الاتصال"><Phone size={17} /></a>}
+          <small>{contactOptions.find((x) => x.v === row.preferred_contact_method)?.l || "غير محدد"}</small>
+        </div>
       </td>
       <td>
-        <span className="date-cell">{formatDate(row)}</span>
+        <span className="date-cell" title={formatDate(row)}>{formatDate(row)}</span>
       </td>
       <td>
         <button
@@ -1087,7 +1212,7 @@ function RequestRow({ row, onOpen }) {
     </tr>
   );
 }
-function RequestMobileCard({ row, onOpen }) {
+function RequestMobileCard({ row, onOpen, onStatusChange }) {
   return (
     <button className="request-mobile-card" onClick={onOpen}>
       <div>
@@ -1096,7 +1221,9 @@ function RequestMobileCard({ row, onOpen }) {
           <b>{displayName(row)}</b>
           <small>{formatDate(row)}</small>
         </span>
-        <StatusBadge row={row} />
+        <select className="inline-status" value={requestState(row)} onClick={(e) => e.stopPropagation()} onChange={(e) => onStatusChange(row.id, e.target.value)} aria-label={`تغيير حالة ${displayName(row)}`}>
+          {requestStates.map((state) => <option key={state} value={state}>{stateLabels[state]}</option>)}
+        </select>
       </div>
       <p>{requestDescription(row)}</p>
       <span className="mobile-card-foot">
@@ -1114,7 +1241,9 @@ function RequestDrawer({ row, onClose }) {
     ),
     [notes, setNotes] = useState(row.khaled_notes || ""),
     [draft, setDraft] = useState(row.draft_message || ""),
+    [draftSource, setDraftSource] = useState(row.draft_source || ""),
     [saving, setSaving] = useState(false),
+    [generating, setGenerating] = useState(false),
     [saved, setSaved] = useState(""),
     [deleting, setDeleting] = useState(false);
   const save = async (status) => {
@@ -1126,10 +1255,13 @@ function RequestDrawer({ row, onClose }) {
         khaled_notes: notes,
         draft_message: draft,
         draft_status: status,
+        draft_source: draftSource || "manual",
+        whatsapp_message: status === "approved" ? draft : row.whatsapp_message || "",
+        whatsapp_url: status === "approved" ? buildWhatsAppUrl(row, draft) : row.whatsapp_url || "",
         status: status === "approved" ? "reviewed" : "reviewing",
       });
       setSaved(
-        status === "approved" ? "تم اعتماد المسودة — لم تُرسل" : "تم الحفظ",
+        status === "approved" ? "تم التأكيد وتحديث رابط واتساب — لم تُرسل الرسالة" : "تم الحفظ كمسودة",
       );
     } catch (e) {
       setSaved("تعذر الحفظ");
@@ -1137,9 +1269,31 @@ function RequestDrawer({ row, onClose }) {
       setSaving(false);
     }
   };
-  const generate = () => {
-    setDraft(buildKnowledgeDraft(row, classification, notes));
-    setSaved("مسودة معرفية جاهزة للمراجعة");
+  const generate = async () => {
+    setGenerating(true);
+    setSaved("");
+    try {
+      if (!draftAIConfigured) throw new Error("draft-api-not-configured");
+      const generated = await generateDraftMessage({
+        name: displayName(row),
+        organization: row.organization_name,
+        service: serviceTypeLabel(row),
+        contactMethod: row.preferred_contact_method,
+        request: requestDescription(row),
+        classification,
+        notes,
+        bookingUrl: BOOKING_URL,
+      });
+      setDraft(generated.draft);
+      setDraftSource("cloudflare-workers-ai");
+      setSaved("مسودة ذكية جاهزة للمراجعة والتعديل");
+    } catch (error) {
+      setDraft(buildKnowledgeDraft(row, classification, notes));
+      setDraftSource("local-fallback");
+      setSaved(error.message === "draft-api-not-configured" ? "الخدمة غير مربوطة — تم إنشاء fallback محلي للمراجعة" : "تعذر الاتصال بالذكاء — تم إنشاء fallback محلي للمراجعة");
+    } finally {
+      setGenerating(false);
+    }
   };
   const remove = async () => {
     if (!window.confirm(`حذف طلب ${displayName(row)} نهائيًا؟`)) return;
@@ -1191,6 +1345,7 @@ function RequestDrawer({ row, onClose }) {
             <p>{requestDescription(row)}</p>
           </section>
           <div className="drawer-contact">
+            {row.phone && <a href={buildWhatsAppUrl(row, draft || row.whatsapp_message || `السلام عليكم ${displayName(row)}،\nمعك خالد. وصلني طلبك بخصوص ${requestDescription(row)}.`)} target="_blank" rel="noreferrer"><MessageCircle size={16} /> تواصل عبر WhatsApp</a>}
             <a href={`tel:${row.phone}`} dir="ltr">
               <Phone size={16} />
               {row.phone}
@@ -1208,7 +1363,7 @@ function RequestDrawer({ row, onClose }) {
               }
             </span>
           </div>
-          <section className="review-panel">
+          <section className="review-panel legacy-review-fields">
             <label>
               <span>تصنيف الطلب</span>
               <select
@@ -1232,11 +1387,11 @@ function RequestDrawer({ row, onClose }) {
                 placeholder="وش فهمت من الطلب؟ وش النقاط الناقصة؟"
               />
             </label>
-            <button className="draft-button" onClick={generate}>
-              <WandSparkles size={17} /> إعداد مسودة من قاعدة المعرفة
+            <button className="draft-button" onClick={generate} disabled={generating}>
+              <WandSparkles size={17} /> {generating ? "جاري تحليل الطلب…" : "إنشاء مسودة ذكية"}
             </button>
             <label>
-              <span>المسودة — لا تُرسل تلقائيًا</span>
+              <span>المسودة — عدّلها قبل الاعتماد</span>
               <textarea
                 rows="9"
                 value={draft}
@@ -1253,7 +1408,7 @@ function RequestDrawer({ row, onClose }) {
                 onClick={() => save("approved")}
                 disabled={saving || !draft.trim()}
               >
-                <Check size={16} /> اعتماد دون إرسال
+                <Check size={16} /> تأكيد وتحديث رابط واتساب
               </button>
             </div>
             {saved && <small className="save-state">{saved}</small>}

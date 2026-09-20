@@ -14,7 +14,7 @@
 .analytics-kpis small,.analytics-kpis strong { display:block; }
 .analytics-kpis small { min-height:35px; color:var(--admin-muted); font-size:11px; }
 .analytics-kpis strong { margin-top:6px; font-size:27px; }
-.analytics-grid { display:grid; grid-template-columns:minmax(0,1.15fr) minmax(0,1fr); gap:15px; margin-bottom:15px; }
+.analytics-grid { display:grid; grid-template-columns:minmax(0,1.15fr) minmax(0,1fr); align-items:start; gap:15px; margin-bottom:15px; }
 .analytics-grid.three { grid-template-columns:repeat(3,1fr); }
 .analytics-card,.analytics-empty { padding:24px; border:1px solid var(--admin-border); border-radius:17px; background:#fff; box-shadow:0 8px 30px rgba(22,35,30,.05); }
 .analytics-card h2 { margin:0 0 20px; font-size:18px; }
@@ -46,14 +46,19 @@
 .visits-point { fill:#146c51; stroke:#fff; stroke-width:2; vector-effect:non-scaling-stroke; }
 .leads-point { fill:#8fc7a5; stroke:#fff; stroke-width:2; vector-effect:non-scaling-stroke; }
 .timeline-chart text { fill:var(--admin-muted); font:10px 'IBM Plex Sans Arabic',system-ui,sans-serif; }
-.chart-legend { display:flex; gap:16px; margin-top:16px; color:var(--admin-muted); font-size:11px; }
+.timeline-chart .chart-y-label { font-size:11px; font-weight:650; }
+.chart-legend { display:flex; gap:16px; margin-top:8px; color:var(--admin-muted); font-size:11px; }
 .chart-legend span { display:flex; align-items:center; gap:6px; }
 .chart-legend i { width:9px; height:9px; border-radius:3px; background:#146c51; }
 .chart-legend i.lead { background:#a6d7b9; }
+.chart-footer { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:8px; }
+.chart-footer .chart-legend { margin-top:0; }
+.timeline-range-toggle { border:1px solid var(--admin-border); border-radius:999px; background:#f7faf8; color:var(--admin-text); padding:7px 11px; font:inherit; font-size:11px; font-weight:700; cursor:pointer; }
+.timeline-range-toggle:hover,.timeline-range-toggle:focus-visible { border-color:#146c51; outline:none; box-shadow:0 0 0 3px #146c5114; }
 .breakdown>div { margin-bottom:15px; }
 .breakdown>div>span { display:flex; justify-content:space-between; margin-bottom:6px; font-size:12px; }
 .breakdown>div>i { display:block; height:7px; overflow:hidden; border-radius:10px; background:#eef1ee; }
 .breakdown em { display:block; height:100%; border-radius:10px; background:var(--admin-purple); }
 .mini-empty { color:var(--admin-muted); font-size:13px; }
 @media(max-width:1000px){.analytics-kpis{grid-template-columns:repeat(3,1fr)}.analytics-grid,.analytics-grid.three{grid-template-columns:1fr}.analytics-filters{grid-template-columns:repeat(2,1fr)}}
-@media(max-width:680px){.admin-shell{padding-inline:14px;background:linear-gradient(180deg,#14221c 0 126px,var(--admin-bg) 126px)}.admin-header{height:126px;flex-wrap:wrap;align-content:center;gap:10px}.admin-brand{order:1}.admin-user{order:2}.admin-user>span{display:none}.admin-nav{order:3;width:100%;justify-content:center}.admin-nav a{flex:1;justify-content:center}.analytics-heading{margin-top:14px;padding:20px}.analytics-heading h1{font-size:23px}.analytics-filters{grid-template-columns:1fr 1fr}.analytics-kpis{grid-template-columns:1fr 1fr}.analytics-kpis article{min-height:94px}.analytics-card{padding:16px}.chart-heading{display:grid}.chart-totals{justify-content:flex-start}.timeline-chart{height:178px}.chart-legend{margin-top:8px}}
+@media(max-width:680px){.admin-shell{padding-inline:14px;background:linear-gradient(180deg,#14221c 0 126px,var(--admin-bg) 126px)}.admin-header{height:126px;flex-wrap:wrap;align-content:center;gap:10px}.admin-brand{order:1}.admin-user{order:2}.admin-user>span{display:none}.admin-nav{order:3;width:100%;justify-content:center}.admin-nav a{flex:1;justify-content:center}.analytics-heading{margin-top:14px;padding:20px}.analytics-heading h1{font-size:23px}.analytics-filters{grid-template-columns:1fr 1fr}.analytics-kpis{grid-template-columns:1fr 1fr}.analytics-kpis article{min-height:94px}.analytics-card{padding:16px}.chart-heading{display:grid}.chart-totals{justify-content:flex-start}.timeline-chart{height:178px}.chart-legend{margin-top:8px}.chart-footer{align-items:flex-start;flex-direction:column}.timeline-range-toggle{width:100%}}
