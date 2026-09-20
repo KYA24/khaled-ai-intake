@@ -23,23 +23,46 @@ async function authenticate(request, env) {
   if (!validSignature || !validClaims || claims.email !== "k.alateeq.cis@gmail.com") throw Object.assign(new Error("draft-generation-not-authorized"), { status: 403 });
 }
 
-const STYLE_GUIDE = `أنت طبقة كتابة داخل نظام خالد، ولست بوتًا عامًا.
-- ابدأ بتحية قصيرة ودافئة باسم العميل، بدون مبالغة.
-- أظهر أنك فهمت طلبه بذكر المشكلة أو المجال تحديدًا.
-- استخدم عربية سعودية طبيعية، مهنية وخفيفة، وليست فصحى جامدة ولا عامية مبتذلة.
-- اجعل الرسالة قصيرة: 3 إلى 6 فقرات قصيرة، وكل فقرة تؤدي وظيفة واحدة.
-- لا تكرر وصف العميل كاملًا، ولا تستخدم عبارات تسويقية عامة مثل حلول مبتكرة.
-- لا تعد بنتيجة قبل فهم التفاصيل، ولا تشخّص تقنيًا من وصف ناقص.
-- اقترح خطوة تالية واحدة واضحة: سؤال محدد، أو جلسة، أو مراجعة.
-- إذا كانت أول جلسة مجانية، اذكرها فقط إذا كان السياق يبررها.
-- اختم باسم خالد فقط، ولا تضف توقيعًا طويلًا أو رموزًا كثيرة.
+const STYLE_GUIDE = `أنت محرر رسائل واتساب لخالد، ولست محللًا يكتب تقريرًا.
 
-مثال الأسلوب: السلام عليكم [الاسم]، يعطيك العافية.\n\nاطلعت على طلبك، وفهمت إنك مهتم بـ[المجال/المشكلة]، وخصوصًا [التفصيل المهم].\n\nأقترح نبدأ بجلسة قصيرة نفهم فيها وضعك الحالي، وبعدها نحدد المسار العملي المناسب لك بدل ما ندخل في أشياء كثيرة بشكل عشوائي.\n\nخالد`;
+الهدف: رسالة قصيرة جاهزة للإرسال للعميل، بصوت خالد الطبيعي.
+- ابدأ بـ: السلام عليكم [الاسم]، يعطيك العافية. أو تحية قريبة منها.
+- قل إنك اطلعت على الطلب، ثم لخّص الاحتياج في جملة واحدة فقط.
+- اربط الجلسة بفائدة واضحة للعميل: نفهم وضعه، نحدد الاتجاه، ونطلع بخطوة عملية.
+- اذكر أن الجلسة الأولى مجانية إذا كان العميل من أوائل العملاء أو كان ذلك مناسبًا للسياق.
+- اختم بدعوة واحدة للحجز، ثم اترك رابط الحجز في آخر سطر حرفيًا.
+- استخدم عربية سعودية طبيعية ومهنية وخفيفة.
+- الرسالة بين 55 و110 كلمة تقريبًا، وفي 3 أو 4 فقرات قصيرة.
+
+ممنوع منعًا قاطعًا:
+- لا تكتب تقريرًا أو تحليلًا تقنيًا للعميل.
+- لا تعيد وصف الطلب كاملًا ولا تكرر كلام العميل.
+- لا تذكر: المدخلات، المخرجات، قرار بشري، ذكاء توليدي، أتمتة ثابتة، ملاحظة من مراجعتي، أو حلول مبتكرة.
+- لا تطرح قائمة أسئلة ولا تطلب تفاصيل قبل الحجز.
+- لا تضف عنوانًا أو مقدمة تفسيرية أو علامات اقتباس.
+- لا تضع رابطًا من عندك؛ سيُضاف رابط الحجز الصحيح آليًا بعد النص.
+- لا تكتب أي شيء بعد رابط الحجز، ولا تضع توقيع خالد بعده.
+
+توجيه داخلي لتحليل الحلول التقنية (لا يظهر في الرسالة): عند اقتراح واجهة أو بناء منتج، اعتبر React مع shadcn/ui مكوّنات أساسية مفضلة لأنها مرنة وقابلة للتوسع، وحلّل أي مشكلة تقنية وفق هذا السياق بدل اقتراح واجهة عامة.`;
 const clean = (value, max) => String(value || "").trim().slice(0, max);
 
 function parseText(value) {
   if (typeof value === "string") return value.replace(/^```(?:text|markdown)?\s*/i, "").replace(/\s*```$/, "").trim();
   return value?.draft || value?.message || value?.text || "";
+}
+
+function fallbackDraft(input) {
+  const name = input.name || "هلا";
+  const service = input.service && input.service !== "غير مذكور" ? input.service : "الاحتياج اللي ذكرته";
+  return `السلام عليكم ${name}، يعطيك العافية.\n\nاطلعت على طلبك، وفهمت أنك تحتاج مساعدة عملية في ${service}، ونحدد لك الاتجاه المناسب بدل التشتت بين خيارات كثيرة.\n\nفي الجلسة الأولى نفهم وضعك وهدفك، وبعدها نطلع بخطوة واضحة تناسبك. الجلسة الأولى مجانية.\n\nاحجز الوقت المناسب لك من هنا:`;
+}
+
+function finalizeDraft(value, input) {
+  const forbidden = /ملاحظة من مراجعتي|مبدئيًا|المدخلات|النتيجة النهائية|قرار بشري|ذكاء توليدي|أتمتة ثابتة|حلول مبتكرة|بيانات الطلب/i;
+  let draft = parseText(value).replace(/https?:\/\/\S+/g, "").replace(/\n?خالد\s*$/u, "").trim();
+  if (!draft || draft.length > 900 || forbidden.test(draft)) draft = fallbackDraft(input);
+  const booking = input.bookingUrl;
+  return booking ? `${draft.replace(/\n?احجز الوقت المناسب لك من هنا:?\s*$/u, "").trim()}\n\nاحجز الوقت المناسب لك من هنا:\n${booking}` : draft;
 }
 
 export default {
@@ -59,7 +82,7 @@ export default {
       const prompt = `${STYLE_GUIDE}\n\nبيانات الطلب:\n- الاسم: ${input.name}\n- الجهة: ${input.organization || "غير مذكورة"}\n- نوع الطلب: ${input.service || "غير مذكور"}\n- طريقة التواصل: ${input.contactMethod || "غير مذكورة"}\n- تصنيف خالد: ${input.classification || "يحتاج مراجعة"}\n- ملاحظات خالد: ${input.notes || "لا توجد"}\n- وصف العميل: ${input.request}\n- رابط الحجز إن احتجته: ${input.bookingUrl || "لا تضفه"}\n\nاكتب الرسالة النهائية فقط، بدون شرح أو عنوان أو علامات اقتباس.`;
       const model = env.CLOUDFLARE_AI_MODEL || "@cf/zai-org/glm-4.7-flash";
       const result = await env.AI.run(model, { messages: [{ role: "system", content: prompt }, { role: "user", content: "اكتب مسودة واتساب مناسبة لهذا العميل الآن." }], temperature: 0.35, max_tokens: 700, stream: false });
-      const draft = parseText(result?.choices?.[0]?.message?.content ?? result?.response ?? result);
+      const draft = finalizeDraft(result?.choices?.[0]?.message?.content ?? result?.response ?? result, input);
       if (!draft) throw new Error("draft-api-empty");
       return reply(env, { draft, provider: "cloudflare", model, generatedAt: new Date().toISOString() });
     } catch (error) {
