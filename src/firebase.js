@@ -149,6 +149,30 @@ export function subscribeAnalyticsEvents(next, error) {
     error,
   );
 }
+export function subscribeAIUsageEvents(next, error) {
+  const q = query(
+    collection(db, "ai_usage_events"),
+    orderBy("created_at", "desc"),
+    limit(5000),
+  );
+  return onSnapshot(
+    q,
+    (snap) => next(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+    error,
+  );
+}
+export async function recordAIUsageEvent(event) {
+  if (!db) return;
+  const id = crypto.randomUUID().replaceAll("-", "");
+  await setDoc(doc(db, "ai_usage_events", id), {
+    provider: event.provider || "cloudflare",
+    model: event.model || "",
+    feature: event.feature || "draft",
+    request_id: event.request_id || "",
+    status: event.status || "success",
+    created_at: serverTimestamp(),
+  });
+}
 export function updateSubmission(id, changes) {
   if (!db) throw new Error("Firebase غير مهيأ");
   return updateDoc(doc(db, "intake_submissions", id), {

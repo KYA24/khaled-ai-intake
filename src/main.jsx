@@ -32,10 +32,12 @@ import {
 import {
   deleteSubmission,
   onAdminAuth,
+  recordAIUsageEvent,
   signInAdmin,
   signOutAdmin,
   submitIntake,
   subscribeAnalyticsEvents,
+  subscribeAIUsageEvents,
   subscribeSubmissions,
   updateSubmission,
   saveLiveSession,
@@ -592,7 +594,9 @@ function AdminApp() {
     [selectedId, setSelectedId] = useState(null),
     [dataError, setDataError] = useState(""),
     [analyticsEvents, setAnalyticsEvents] = useState([]),
-    [analyticsError, setAnalyticsError] = useState("");
+    [analyticsError, setAnalyticsError] = useState(""),
+    [aiUsageEvents, setAIUsageEvents] = useState([]),
+    [aiUsageError, setAIUsageError] = useState("");
   useEffect(() => {
     document.title = "طلبات خالد · AI Workflow";
     const manifest = document.createElement("link");
@@ -631,6 +635,8 @@ function AdminApp() {
   useEffect(() => {
     if (auth.user?.email !== OWNER_EMAIL) return;
     if (window.location.pathname.startsWith("/admin/live-reports")) return;
+    if (window.location.pathname.startsWith("/admin/ai-usage"))
+      return subscribeAIUsageEvents(setAIUsageEvents, (e) => setAIUsageError(e.message));
     if (window.location.pathname.startsWith("/admin/analytics"))
       return subscribeAnalyticsEvents(setAnalyticsEvents, (e) => setAnalyticsError(e.message));
     return subscribeSubmissions(setRows, (e) => setDataError(e.message));
@@ -666,9 +672,11 @@ function AdminApp() {
     );
   if (window.location.pathname.startsWith("/admin/live-reports"))
     return <LiveReports user={auth.user} />;
+  if (window.location.pathname.startsWith("/admin/ai-usage"))
+    return <AIUsageDashboard user={auth.user} events={aiUsageEvents} error={aiUsageError} />;
   if (window.location.pathname.startsWith("/admin/analytics"))
     return <AnalyticsDashboard user={auth.user} events={analyticsEvents} error={analyticsError} />;
-	  const filtered = rows
+  const filtered = rows
     .filter((r) =>
       [displayName(r), requestDescription(r), r.email, r.phone, r.organization_name, serviceTypeLabel(r)]
         .join(" ")
@@ -934,6 +942,7 @@ function AdminHeader({ user }) {
       <nav className="admin-nav" aria-label="التنقل في لوحة الإدارة">
         <a href="/admin" className={window.location.pathname === "/admin" || window.location.pathname === "/admin/" ? "active" : ""}><ListChecks size={16} /> الطلبات</a>
         <a href="/admin/analytics" className={window.location.pathname.startsWith("/admin/analytics") ? "active" : ""}><BarChart3 size={16} /> التحليلات</a>
+        <a href="/admin/ai-usage" className={window.location.pathname.startsWith("/admin/ai-usage") ? "active" : ""}><BarChart3 size={16} /> استخدام الذكاء</a>
         <a href="/admin/live-reports" className={window.location.pathname.startsWith("/admin/live-reports") ? "active" : ""}><BarChart3 size={16} /> تحليل البثوث</a>
       </nav>
       <div className="admin-user">
@@ -961,6 +970,60 @@ const funnelStages = [
 const sourceLabels = { tiktok: "TikTok", linkedin: "LinkedIn", live: "Live", direct: "Direct", referral: "Referral", other: "Other" };
 const serviceLabels = { short_session: "استشارة قصيرة", deep_session: "استشارة معمقة", service: "خدمة" };
 const customerLabels = { individual: "فرد", organization_or_project_owner: "جهة / صاحب مشروع" };
+
+function AIUsageDashboard({ user, events, error }) {
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const timeOf = (event) => event.created_at?.toMillis?.() || 0;
+  const success = events.filter((event) => (event.status || "success") === "success");
+  const today = success.filter((event) => timeOf(event) >= startOfToday);
+  const month = success.filter((event) => timeOf(event) >= startOfMonth);
+  const last = success.slice(0, 20);
+  const model = success.find((event) => event.model)?.model || "@cf/zai-org/glm-4.7-flash";
+  const nextReset = new Intl.DateTimeFormat("ar-SA", { dateStyle: "full" }).format(nextMonth);
+  return <main className="admin-shell analytics-shell">
+    <AdminHeader user={user} />
+    <section className="analytics-heading">
+      <div>
+        <p className="admin-kicker">Workers AI Usage</p>
+        <h1>استخدام الذكاء</h1>
+        <p>تتبع داخلي لمرات توليد المسودات داخل هذا التطبيق. الحد الرسمي والرصيد الفعلي يبقى في لوحة Cloudflare.</p>
+      </div>
+    </section>
+    {error && <div className="submit-error">تعذر تحميل استخدام الذكاء: {error}</div>}
+    <section className="analytics-kpis">
+      <AnalyticsKpi label="اليوم" value={today.length} />
+      <AnalyticsKpi label="هذا الشهر" value={month.length} />
+      <AnalyticsKpi label="كل المسجل" value={success.length} />
+      <AnalyticsKpi label="النموذج" value={model.split("/").pop()} />
+      <AnalyticsKpi label="المزود" value="Cloudflare" />
+      <AnalyticsKpi label="تجدد العداد الشهري" value={nextReset} />
+    </section>
+    <section className="analytics-grid">
+      <article className="analytics-card">
+        <h2>ملاحظة الحدود</h2>
+        <p className="live-muted">Cloudflare Workers AI يحاسب حسب سياسة حساب Cloudflare والـquota المتاحة له. هذه الصفحة تقيس استخدامنا من داخل التطبيق: كل ضغطة توليد ناجحة = عملية واحدة.</p>
+        <p className="live-muted">إذا احتجنا رقم quota رسمي أو تكلفة دقيقة، نراجعه من Cloudflare Dashboard لأن استجابة النموذج الحالية لا ترجع عداد الرصيد.</p>
+      </article>
+      <article className="analytics-card">
+        <h2>آخر عمليات التوليد</h2>
+        <div className="ai-usage-list">
+          {last.length ? last.map((event) => <div key={event.id}>
+            <span><b>{event.model?.split("/").pop() || "model"}</b><small>{event.request_id || "draft"}</small></span>
+            <strong>{formatEventTime(event.created_at)}</strong>
+          </div>) : <p className="mini-empty">ما فيه استخدام مسجل بعد.</p>}
+        </div>
+      </article>
+    </section>
+  </main>;
+}
+function formatEventTime(timestamp) {
+  const date = timestamp?.toDate?.();
+  if (!date) return "الآن";
+  return new Intl.DateTimeFormat("ar-SA", { dateStyle: "medium", timeStyle: "short" }).format(date);
+}
 
 function AnalyticsDashboard({ user, events, error }) {
   const [range, setRange] = useState("30"), [source, setSource] = useState("all"), [customer, setCustomer] = useState("all"), [service, setService] = useState("all"), [showFullTimeline, setShowFullTimeline] = useState(false);
@@ -1432,6 +1495,13 @@ function RequestDrawer({ row, onClose }) {
       });
       setDraft(generated.draft);
       setDraftSource("cloudflare-workers-ai");
+      void recordAIUsageEvent({
+        provider: generated.provider,
+        model: generated.model,
+        feature: "whatsapp-draft",
+        request_id: row.id,
+        status: "success",
+      });
       setSaved("مسودة ذكية جاهزة للمراجعة والتعديل");
     } catch (error) {
       setDraft(buildKnowledgeDraft(row, "SUITABLE_CLEAR", notes));
