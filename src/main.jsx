@@ -12,6 +12,7 @@ import {
   CircleCheckBig,
   CircleDashed,
   FileText,
+  Lightbulb,
   LogIn,
   LogOut,
   ListChecks,
@@ -1156,6 +1157,42 @@ function customerTypeLabel(row) {
 function serviceTypeLabel(row) {
   return { short_session: "جلسة قصيرة", deep_session: "جلسة معمقة", service: "خدمة", appointment: "طلب حجز موعد" }[row.service_type] || "طلب سابق";
 }
+function serviceTypeLabelValue(value) {
+  return { short_session: "جلسة قصيرة", deep_session: "جلسة معمقة", service: "خدمة", appointment: "طلب حجز موعد" }[value] || "طلب سابق";
+}
+function serviceDurationFor(value) {
+  return { short_session: "20-30_min", deep_session: "up_to_60_min", service: null, appointment: null }[value] ?? null;
+}
+function requestTypeSuggestion(row) {
+  const text = `${requestDescription(row)} ${row.ai_need || ""} ${row.khaled_notes || ""}`.toLowerCase();
+  const serviceWords = [
+    "نفذ", "تنفيذ", "تسوي", "اصمم", "تصميم", "ابني", "بناء", "اطور", "تطوير",
+    "موقع", "داشبورد", "dashboard", "نظام", "تطبيق", "بوت", "workflow", "automation",
+    "أتمتة", "اتمتة", "ربط", "تكامل", "صفحة", "landing", "portfolio", "متجر", "برنامج",
+  ];
+  const consultationWords = [
+    "استشارة", "استشاره", "أحدد", "احدد", "اختار", "أختار", "مسار", "خارطة", "رودماب",
+    "roadmap", "توجيه", "أنصح", "انصح", "مجال", "تعلم", "تعليمي", "قرار", "مراجعة",
+    "جلسة", "جلسه", "تحليل وضعي", "وش الأنسب", "وش الانسب",
+  ];
+  const serviceScore = serviceWords.filter((word) => text.includes(word)).length;
+  const consultationScore = consultationWords.filter((word) => text.includes(word)).length;
+  if (serviceScore >= Math.max(2, consultationScore + 1) && row.service_type !== "service") {
+    return {
+      serviceType: "service",
+      confidence: serviceScore >= 4 ? "عالية" : "متوسطة",
+      reason: "الوصف فيه مؤشرات تنفيذ مثل بناء/تطوير/نظام، لذلك يبدو أنه خدمة وليس استشارة.",
+    };
+  }
+  if (consultationScore >= Math.max(2, serviceScore + 1) && row.service_type === "service") {
+    return {
+      serviceType: "deep_session",
+      confidence: consultationScore >= 4 ? "عالية" : "متوسطة",
+      reason: "الوصف يطلب توجيه أو اختيار مسار، لذلك يبدو أنه استشارة وليس خدمة تنفيذ.",
+    };
+  }
+  return null;
+}
 function whatsappNumber(phone) {
   const digits = String(phone || "").replace(/\D/g, "");
   if (/^05\d{8}$/.test(digits)) return `966${digits.slice(1)}`;
@@ -1255,6 +1292,7 @@ function RequestMobileCard({ row, onOpen, onStatusChange }) {
   );
 }
 function RequestDrawer({ row, onClose }) {
+  const suggestion = requestTypeSuggestion(row);
   const [classification, setClassification] = useState(
       row.classification || "NEEDS_CLARIFICATION",
     ),
@@ -1262,6 +1300,7 @@ function RequestDrawer({ row, onClose }) {
     [draft, setDraft] = useState(row.draft_message || ""),
     [draftSource, setDraftSource] = useState(row.draft_source || ""),
     [saving, setSaving] = useState(false),
+    [savingType, setSavingType] = useState(false),
     [generating, setGenerating] = useState(false),
     [saved, setSaved] = useState(""),
     [deleting, setDeleting] = useState(false);
@@ -1285,6 +1324,28 @@ function RequestDrawer({ row, onClose }) {
       setSaved("تعذر الحفظ");
     } finally {
       setSaving(false);
+    }
+  };
+  const applyTypeSuggestion = async () => {
+    if (!suggestion) return;
+    setSavingType(true);
+    setSaved("");
+    try {
+      await updateSubmission(row.id, {
+        service_type: suggestion.serviceType,
+        service_duration: serviceDurationFor(suggestion.serviceType),
+        type_suggestion: {
+          from: row.service_type || "",
+          to: suggestion.serviceType,
+          confidence: suggestion.confidence,
+          reason: suggestion.reason,
+        },
+      });
+      setSaved(`تم تعديل نوع الطلب إلى ${serviceTypeLabelValue(suggestion.serviceType)}`);
+    } catch {
+      setSaved("تعذر اعتماد مقترح نوع الطلب");
+    } finally {
+      setSavingType(false);
     }
   };
   const generate = async () => {
@@ -1362,6 +1423,21 @@ function RequestDrawer({ row, onClose }) {
             <small>وصف الطلب</small>
             <p>{requestDescription(row)}</p>
           </section>
+          {suggestion && (
+            <section className="type-suggestion">
+              <div>
+                <Lightbulb size={17} />
+                <span>تنبيه ذكي</span>
+              </div>
+              <p>
+                حسب الوصف يبدو أن هذا الطلب أقرب إلى <b>{serviceTypeLabelValue(suggestion.serviceType)}</b> وليس{" "}
+                <b>{serviceTypeLabel(row)}</b>. {suggestion.reason}
+              </p>
+              <button type="button" onClick={applyTypeSuggestion} disabled={savingType}>
+                {savingType ? "جاري الاعتماد..." : "اعتماد مقترح التعديل"}
+              </button>
+            </section>
+          )}
           <div className="drawer-contact">
             {row.phone && <a href={buildWhatsAppUrl(row, draft || row.whatsapp_message || `السلام عليكم ${displayName(row)}،\nمعك خالد. وصلني طلبك بخصوص ${requestDescription(row)}.`)} target="_blank" rel="noreferrer"><MessageCircle size={16} /> تواصل عبر WhatsApp</a>}
             <a href={`tel:${row.phone}`} dir="ltr">

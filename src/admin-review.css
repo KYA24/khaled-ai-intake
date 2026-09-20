@@ -511,6 +511,44 @@
   line-height: 1.8;
   color: #46414c;
 }
+.type-suggestion {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #e5c866;
+  border-radius: 12px;
+  background: #fff8db;
+  color: #66500a;
+}
+.type-suggestion > div {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 800;
+}
+.type-suggestion p {
+  margin: 0;
+  line-height: 1.75;
+  color: #5d4c14;
+}
+.type-suggestion button {
+  width: fit-content;
+  min-height: 36px;
+  border: 1px solid #c9a832;
+  border-radius: 9px;
+  background: #f2c94c;
+  color: #2d2407;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 0 13px;
+}
+.type-suggestion button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
 .drawer-contact {
   display: flex;
   gap: 8px;
