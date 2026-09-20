@@ -785,6 +785,13 @@ function AdminApp() {
                   row={row}
                   onOpen={() => setSelectedId(row.id)}
                   onStatusChange={async (id, status) => { try { await updateSubmission(id, { status }); } catch { setDataError("تعذر تحديث الحالة"); } }}
+                  onTypeSuggestionAction={async (id, action, suggestion) => {
+                    try {
+                      await saveTypeSuggestionDecision(id, row, action, suggestion);
+                    } catch {
+                      setDataError("تعذر تحديث مقترح نوع الطلب");
+                    }
+                  }}
                 />
               ))}
             </tbody>
@@ -797,6 +804,13 @@ function AdminApp() {
               row={row}
               onOpen={() => setSelectedId(row.id)}
               onStatusChange={async (id, status) => { try { await updateSubmission(id, { status }); } catch { setDataError("تعذر تحديث الحالة"); } }}
+              onTypeSuggestionAction={async (id, action, suggestion) => {
+                try {
+                  await saveTypeSuggestionDecision(id, row, action, suggestion);
+                } catch {
+                  setDataError("تعذر تحديث مقترح نوع الطلب");
+                }
+              }}
             />
           ))}
         </div>
@@ -1180,20 +1194,56 @@ function requestTypeSuggestion(row) {
   const serviceScore = serviceWords.filter((word) => text.includes(word)).length;
   const consultationScore = consultationWords.filter((word) => text.includes(word)).length;
   if (serviceScore >= Math.max(2, consultationScore + 1) && row.service_type !== "service") {
+    const key = suggestionKey(row, "service");
+    if (row.type_suggestion?.ignored_key === key) return null;
     return {
       serviceType: "service",
       confidence: serviceScore >= 4 ? "عالية" : "متوسطة",
       reason: "الوصف يطلب تنفيذ شيء ملموس مثل موقع أو حل أو برنامج أو مشروع، لذلك يبدو أنه خدمة وليس استشارة.",
+      key,
     };
   }
   if (consultationScore >= Math.max(2, serviceScore + 1) && row.service_type === "service") {
+    const key = suggestionKey(row, "deep_session");
+    if (row.type_suggestion?.ignored_key === key) return null;
     return {
       serviceType: "deep_session",
       confidence: consultationScore >= 4 ? "عالية" : "متوسطة",
       reason: "الوصف يطلب مسارًا مهنيًا أو توجيهًا أو إجابات على تساؤلات، لذلك يبدو أنه استشارة وليس خدمة تنفيذ.",
+      key,
     };
   }
   return null;
+}
+function suggestionKey(row, targetType) {
+  return `${row.service_type || "unknown"}>${targetType}:${requestDescription(row).slice(0, 160)}`;
+}
+function typeSuggestionPayload(row, suggestion, decision) {
+  return {
+    from: row.service_type || "",
+    to: suggestion.serviceType,
+    confidence: suggestion.confidence,
+    reason: suggestion.reason,
+    key: suggestion.key,
+    decision,
+  };
+}
+async function saveTypeSuggestionDecision(id, row, action, suggestion) {
+  if (!suggestion) return;
+  if (action === "apply") {
+    await updateSubmission(id, {
+      service_type: suggestion.serviceType,
+      service_duration: serviceDurationFor(suggestion.serviceType),
+      type_suggestion: typeSuggestionPayload(row, suggestion, "applied"),
+    });
+    return;
+  }
+  await updateSubmission(id, {
+    type_suggestion: {
+      ...typeSuggestionPayload(row, suggestion, "ignored"),
+      ignored_key: suggestion.key,
+    },
+  });
 }
 function whatsappNumber(phone) {
   const digits = String(phone || "").replace(/\D/g, "");
@@ -1214,7 +1264,8 @@ function StatusBadge({ row }) {
     </span>
   );
 }
-function RequestRow({ row, onOpen, onStatusChange }) {
+function RequestRow({ row, onOpen, onStatusChange, onTypeSuggestionAction }) {
+  const suggestion = requestTypeSuggestion(row);
   return (
     <tr
       onClick={onOpen}
@@ -1234,9 +1285,12 @@ function RequestRow({ row, onOpen, onStatusChange }) {
         <p className="need-cell" title={requestDescription(row)}>{requestDescription(row)}</p>
       </td>
       <td>
-        <span className="plain-tag">
-          {serviceTypeLabel(row)} · {customerTypeLabel(row)}
-        </span>
+        <div className="type-cell">
+          <span className="plain-tag">
+            {serviceTypeLabel(row)} · {customerTypeLabel(row)}
+          </span>
+          <TypeSuggestionHint row={row} suggestion={suggestion} onAction={onTypeSuggestionAction} />
+        </div>
       </td>
       <td>
         <select className="inline-status" value={requestState(row)} onClick={(e) => e.stopPropagation()} onChange={(e) => onStatusChange(row.id, e.target.value)} aria-label={`تغيير حالة ${displayName(row)}`}>
@@ -1270,7 +1324,8 @@ function RequestRow({ row, onOpen, onStatusChange }) {
     </tr>
   );
 }
-function RequestMobileCard({ row, onOpen, onStatusChange }) {
+function RequestMobileCard({ row, onOpen, onStatusChange, onTypeSuggestionAction }) {
+  const suggestion = requestTypeSuggestion(row);
   return (
     <button className="request-mobile-card" onClick={onOpen}>
       <div>
@@ -1288,9 +1343,30 @@ function RequestMobileCard({ row, onOpen, onStatusChange }) {
         <span>
           {serviceTypeLabel(row)} · {customerTypeLabel(row)}
         </span>
+        <TypeSuggestionHint row={row} suggestion={suggestion} onAction={onTypeSuggestionAction} />
         <ChevronLeft size={17} />
       </span>
     </button>
+  );
+}
+function TypeSuggestionHint({ row, suggestion, onAction }) {
+  if (!suggestion) return null;
+  const stop = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  };
+  return (
+    <span className="type-suggestion-pop" onClick={stop} onMouseDown={stop}>
+      <span className="type-suggestion-dot">!</span>
+      <span className="type-suggestion-body">
+        <b>اقتراح: {serviceTypeLabelValue(suggestion.serviceType)}</b>
+        <small>{suggestion.reason}</small>
+        <span>
+          <button type="button" onClick={(event) => { stop(event); onAction(row.id, "apply", suggestion); }}>نفذ</button>
+          <button type="button" onClick={(event) => { stop(event); onAction(row.id, "ignore", suggestion); }}>تجاهل</button>
+        </span>
+      </span>
+    </span>
   );
 }
 function RequestDrawer({ row, onClose }) {
@@ -1329,16 +1405,7 @@ function RequestDrawer({ row, onClose }) {
     setSavingType(true);
     setSaved("");
     try {
-      await updateSubmission(row.id, {
-        service_type: suggestion.serviceType,
-        service_duration: serviceDurationFor(suggestion.serviceType),
-        type_suggestion: {
-          from: row.service_type || "",
-          to: suggestion.serviceType,
-          confidence: suggestion.confidence,
-          reason: suggestion.reason,
-        },
-      });
+      await saveTypeSuggestionDecision(row.id, row, "apply", suggestion);
       setSaved(`تم تعديل نوع الطلب إلى ${serviceTypeLabelValue(suggestion.serviceType)}`);
     } catch {
       setSaved("تعذر اعتماد مقترح نوع الطلب");

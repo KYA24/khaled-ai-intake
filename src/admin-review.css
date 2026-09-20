@@ -319,6 +319,107 @@
   background: #f8f7fc;
   outline: 0;
 }
+.type-cell {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.type-suggestion-pop {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  max-width: 22px;
+  z-index: 4;
+  overflow: visible;
+  transition: max-width 0.22s ease;
+}
+.type-suggestion-pop:hover,
+.type-suggestion-pop:focus-within {
+  max-width: 340px;
+}
+.type-suggestion-dot {
+  width: 22px;
+  height: 22px;
+  border: 1px solid #dfbd3a;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: #fff3b0;
+  color: #6a5200;
+  font-size: 12px;
+  font-weight: 900;
+  box-shadow: 0 3px 9px #7a5f0014;
+  transition: transform 0.18s ease, background 0.18s ease;
+}
+.type-suggestion-body {
+  width: min(285px, 42vw);
+  max-width: 0;
+  min-height: 22px;
+  margin-right: 6px;
+  padding: 0;
+  border: 0 solid transparent;
+  border-radius: 10px;
+  background: #fff8d8;
+  color: #4e3d00;
+  box-shadow: none;
+  opacity: 0;
+  pointer-events: none;
+  overflow: hidden;
+  transform: scale(0.96);
+  transform-origin: right center;
+  transition: opacity 0.18s ease, transform 0.2s ease, max-width 0.22s ease, padding 0.22s ease, border-width 0.22s ease;
+}
+.type-suggestion-pop:hover .type-suggestion-dot,
+.type-suggestion-pop:focus-within .type-suggestion-dot {
+  background: #f2c94c;
+  transform: scale(1.07);
+}
+.type-suggestion-pop:hover .type-suggestion-body,
+.type-suggestion-pop:focus-within .type-suggestion-body {
+  max-width: 285px;
+  padding: 9px;
+  border-width: 1px;
+  border-color: #e1bf42;
+  box-shadow: 0 14px 30px #2d250017;
+  opacity: 1;
+  pointer-events: auto;
+  transform: scale(1);
+}
+.type-suggestion-body b,
+.type-suggestion-body small {
+  display: block;
+}
+.type-suggestion-body b {
+  margin-bottom: 5px;
+  font-size: 12px;
+}
+.type-suggestion-body small {
+  line-height: 1.55;
+  color: #66520c;
+  white-space: normal;
+}
+.type-suggestion-body > span {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.type-suggestion-body button {
+  min-height: 28px;
+  border: 1px solid #d0ae32;
+  border-radius: 8px;
+  background: #fff;
+  color: #3d3105;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 0 10px;
+}
+.type-suggestion-body button:first-child {
+  background: #f2c94c;
+}
 .client-cell {
   display: flex;
   align-items: center;
