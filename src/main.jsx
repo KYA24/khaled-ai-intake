@@ -1166,14 +1166,16 @@ function serviceDurationFor(value) {
 function requestTypeSuggestion(row) {
   const text = `${requestDescription(row)} ${row.ai_need || ""} ${row.khaled_notes || ""}`.toLowerCase();
   const serviceWords = [
-    "نفذ", "تنفيذ", "تسوي", "اصمم", "تصميم", "ابني", "بناء", "اطور", "تطوير",
-    "موقع", "داشبورد", "dashboard", "نظام", "تطبيق", "بوت", "workflow", "automation",
-    "أتمتة", "اتمتة", "ربط", "تكامل", "صفحة", "landing", "portfolio", "متجر", "برنامج",
+    "نفذ", "تنفيذ", "تسوي", "سوّي", "اسوي", "أسوي", "اصمم", "تصميم", "ابني", "بناء",
+    "اطور", "أطور", "تطوير", "موقع", "ويبسايت", "website", "داشبورد", "dashboard",
+    "حل", "حل رقمي", "نظام", "تطبيق", "برنامج", "مشروع", "بوت", "workflow", "automation",
+    "أتمتة", "اتمتة", "ربط", "تكامل", "صفحة", "landing", "portfolio", "متجر",
   ];
   const consultationWords = [
-    "استشارة", "استشاره", "أحدد", "احدد", "اختار", "أختار", "مسار", "خارطة", "رودماب",
-    "roadmap", "توجيه", "أنصح", "انصح", "مجال", "تعلم", "تعليمي", "قرار", "مراجعة",
-    "جلسة", "جلسه", "تحليل وضعي", "وش الأنسب", "وش الانسب",
+    "استشارة", "استشاره", "أحدد", "احدد", "اختار", "أختار", "مسار", "مسار مهني",
+    "مهني", "وظيفي", "career", "خارطة", "رودماب", "roadmap", "توجيه", "أنصح", "انصح",
+    "مجال", "تعلم", "تعليمي", "قرار", "مراجعة", "جلسة", "جلسه", "سؤال", "تساؤل",
+    "أسئلة", "اسئلة", "إجابات", "اجابات", "استفسار", "تحليل وضعي", "وش الأنسب", "وش الانسب",
   ];
   const serviceScore = serviceWords.filter((word) => text.includes(word)).length;
   const consultationScore = consultationWords.filter((word) => text.includes(word)).length;
@@ -1181,14 +1183,14 @@ function requestTypeSuggestion(row) {
     return {
       serviceType: "service",
       confidence: serviceScore >= 4 ? "عالية" : "متوسطة",
-      reason: "الوصف فيه مؤشرات تنفيذ مثل بناء/تطوير/نظام، لذلك يبدو أنه خدمة وليس استشارة.",
+      reason: "الوصف يطلب تنفيذ شيء ملموس مثل موقع أو حل أو برنامج أو مشروع، لذلك يبدو أنه خدمة وليس استشارة.",
     };
   }
   if (consultationScore >= Math.max(2, serviceScore + 1) && row.service_type === "service") {
     return {
       serviceType: "deep_session",
       confidence: consultationScore >= 4 ? "عالية" : "متوسطة",
-      reason: "الوصف يطلب توجيه أو اختيار مسار، لذلك يبدو أنه استشارة وليس خدمة تنفيذ.",
+      reason: "الوصف يطلب مسارًا مهنيًا أو توجيهًا أو إجابات على تساؤلات، لذلك يبدو أنه استشارة وليس خدمة تنفيذ.",
     };
   }
   return null;
