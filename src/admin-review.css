@@ -239,8 +239,8 @@
   min-height: 43px;
   display: flex;
   align-items: center;
-  gap: 13px;
-  padding: 0 12px;
+  gap: 6px;
+  padding: 5px 8px;
   border: 1px solid var(--admin-border);
   border-radius: 8px;
   background: #fff;
@@ -249,18 +249,22 @@
   white-space: nowrap;
 }
 .status-filter-tabs button {
-  border: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
   background: transparent;
   color: #5c6761;
   cursor: pointer;
   font: inherit;
   font-size: 13px;
   font-weight: 650;
-  padding: 7px 0;
+  padding: 7px 10px;
+  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
 }
 .status-filter-tabs button.active {
+  border-color: #bcd9c6;
+  background: #eaf6ef;
   color: var(--admin-green);
-  box-shadow: inset 0 -2px 0 var(--admin-green);
+  box-shadow: 0 1px 0 #ffffff inset;
 }
 .status-filter-tabs button:focus-visible {
   outline: 2px solid #146c5130;
