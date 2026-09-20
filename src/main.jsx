@@ -584,7 +584,7 @@ function AdminApp() {
   const [auth, setAuth] = useState({ loading: true, user: null, error: "" }),
     [rows, setRows] = useState([]),
     [queryText, setQueryText] = useState(""),
-    [statusFilter, setStatusFilter] = useState("all"),
+    [statusFilter, setStatusFilter] = useState("active"),
     [typeFilter, setTypeFilter] = useState("all"),
     [sourceFilter, setSourceFilter] = useState("all"),
     [sort, setSort] = useState("newest"),
@@ -674,7 +674,7 @@ function AdminApp() {
         .toLowerCase()
         .includes(queryText.toLowerCase()),
     )
-    .filter((r) => statusFilter === "all" || requestState(r) === statusFilter)
+    .filter((r) => statusFilterMatches(r, statusFilter))
     .filter((r) => typeFilter === "all" || r.customer_type === typeFilter)
     .filter(
       (r) => sourceFilter === "all" || (r.source || "direct") === sourceFilter,
@@ -708,21 +708,19 @@ function AdminApp() {
               placeholder="ابحث بالاسم أو المشكلة"
             />
           </label>
-          <label className="filter-control">
+          <div className="status-filter-tabs" role="list" aria-label="حالة الطلب">
             <SlidersHorizontal size={16} />
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              aria-label="الحالة"
-            >
-              <option value="all">كل الحالات</option>
-              <option value="new">جديد</option>
-              <option value="two_days_old">قديم له يومين</option>
-              <option value="contacted">تم التواصل معه</option>
-              <option value="appointment_booked">تم حجز موعد</option>
-              <option value="consultation_delivered">تم تقديم الاستشارة</option>
-            </select>
-          </label>
+            {statusFilterOptions.map(({ value, label }) => (
+              <button
+                key={value}
+                type="button"
+                className={statusFilter === value ? "active" : ""}
+                onClick={() => setStatusFilter(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <label className="filter-control">
             <select
               value={typeFilter}
@@ -1099,17 +1097,38 @@ function Stat({ icon: Icon, label, value, tone }) {
 }
 const stateLabels = {
   new: "جديد",
-  two_days_old: "قديم له يومين",
+  two_days_old: "مر أكثر من يومين",
   contacted: "تم التواصل معه",
   appointment_booked: "تم حجز موعد",
   consultation_delivered: "تم تقديم الاستشارة",
 };
 const requestStates = Object.keys(stateLabels);
+const statusFilterOptions = [
+  { value: "active", label: "النشطة" },
+  { value: "new", label: stateLabels.new },
+  { value: "two_days_old", label: stateLabels.two_days_old },
+  { value: "contacted", label: stateLabels.contacted },
+  { value: "appointment_booked", label: stateLabels.appointment_booked },
+  { value: "consultation_delivered", label: stateLabels.consultation_delivered },
+  { value: "all", label: "كل الطلبات" },
+];
 function requestState(row) {
+  if (["reviewed", "approved"].includes(row.status)) return "consultation_delivered";
+  if (row.status === "new" && isOlderThanTwoDays(row.submitted_at)) return "two_days_old";
   if (requestStates.includes(row.status)) return row.status;
   if (row.status === "reviewing") return "contacted";
-  if (["reviewed", "approved"].includes(row.status)) return "consultation_delivered";
-  return "new";
+  return isOlderThanTwoDays(row.submitted_at) ? "two_days_old" : "new";
+}
+function statusFilterMatches(row, filter) {
+  const state = requestState(row);
+  if (filter === "all") return true;
+  if (filter === "active") return state !== "consultation_delivered";
+  return state === filter;
+}
+function isOlderThanTwoDays(timestamp) {
+  const submitted = timestamp?.toDate?.();
+  if (!submitted) return false;
+  return Date.now() - submitted.getTime() >= 2 * 24 * 60 * 60 * 1000;
 }
 function formatDate(row, withTime = false) {
   const date = row.submitted_at?.toDate?.();
@@ -1258,7 +1277,6 @@ function RequestDrawer({ row, onClose }) {
         draft_source: draftSource || "manual",
         whatsapp_message: status === "approved" ? draft : row.whatsapp_message || "",
         whatsapp_url: status === "approved" ? buildWhatsAppUrl(row, draft) : row.whatsapp_url || "",
-        status: status === "approved" ? "reviewed" : "reviewing",
       });
       setSaved(
         status === "approved" ? "تم التأكيد وتحديث رابط واتساب — لم تُرسل الرسالة" : "تم الحفظ كمسودة",
