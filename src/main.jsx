@@ -1295,10 +1295,7 @@ function RequestMobileCard({ row, onOpen, onStatusChange }) {
 }
 function RequestDrawer({ row, onClose }) {
   const suggestion = requestTypeSuggestion(row);
-  const [classification, setClassification] = useState(
-      row.classification || "NEEDS_CLARIFICATION",
-    ),
-    [notes, setNotes] = useState(row.khaled_notes || ""),
+  const [notes, setNotes] = useState(row.khaled_notes || ""),
     [draft, setDraft] = useState(row.draft_message || ""),
     [draftSource, setDraftSource] = useState(row.draft_source || ""),
     [saving, setSaving] = useState(false),
@@ -1311,7 +1308,6 @@ function RequestDrawer({ row, onClose }) {
     setSaved("");
     try {
       await updateSubmission(row.id, {
-        classification,
         khaled_notes: notes,
         draft_message: draft,
         draft_status: status,
@@ -1361,7 +1357,7 @@ function RequestDrawer({ row, onClose }) {
         service: serviceTypeLabel(row),
         contactMethod: row.preferred_contact_method,
         request: requestDescription(row),
-        classification,
+        classification: "SUITABLE_CLEAR",
         notes,
         bookingUrl: BOOKING_URL,
       });
@@ -1369,7 +1365,7 @@ function RequestDrawer({ row, onClose }) {
       setDraftSource("cloudflare-workers-ai");
       setSaved("مسودة ذكية جاهزة للمراجعة والتعديل");
     } catch (error) {
-      setDraft(buildKnowledgeDraft(row, classification, notes));
+      setDraft(buildKnowledgeDraft(row, "SUITABLE_CLEAR", notes));
       setDraftSource("local-fallback");
       setSaved(error.message === "draft-api-not-configured" ? "الخدمة غير مربوطة — تم إنشاء fallback محلي للمراجعة" : "تعذر الاتصال بالذكاء — تم إنشاء fallback محلي للمراجعة");
     } finally {
@@ -1460,20 +1456,6 @@ function RequestDrawer({ row, onClose }) {
             </span>
           </div>
           <section className="review-panel legacy-review-fields">
-            <label>
-              <span>تصنيف الطلب</span>
-              <select
-                value={classification}
-                onChange={(e) => setClassification(e.target.value)}
-              >
-                <option value="SUITABLE_CLEAR">مناسب وواضح</option>
-                <option value="NEEDS_CLARIFICATION">يحتاج توضيح</option>
-                <option value="OUT_OF_SCOPE">خارج النطاق</option>
-                <option value="HIGH_RISK_HUMAN_REVIEW">
-                  حساس — مراجعة بشرية
-                </option>
-              </select>
-            </label>
             <label>
               <span>ملاحظات خالد</span>
               <textarea
