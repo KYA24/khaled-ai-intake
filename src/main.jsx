@@ -668,7 +668,7 @@ function AdminApp() {
     return <LiveReports user={auth.user} />;
   if (window.location.pathname.startsWith("/admin/analytics"))
     return <AnalyticsDashboard user={auth.user} events={analyticsEvents} error={analyticsError} />;
-  const filtered = rows
+	  const filtered = rows
     .filter((r) =>
       [displayName(r), requestDescription(r), r.email, r.phone, r.organization_name, serviceTypeLabel(r)]
         .join(" ")
@@ -684,8 +684,12 @@ function AdminApp() {
       const aTime = a.submitted_at?.seconds || 0;
       const bTime = b.submitted_at?.seconds || 0;
       return sort === "oldest" ? aTime - bTime : bTime - aTime;
-    });
-  const selected = rows.find((row) => row.id === selectedId);
+	    });
+	  const typeSuggestionRows = filtered
+	    .map((row) => ({ row, suggestion: requestTypeSuggestion(row) }))
+	    .filter((item) => item.suggestion)
+	    .slice(0, 4);
+	  const selected = rows.find((row) => row.id === selectedId);
   return (
     <main className="admin-shell">
       <AdminHeader user={auth.user} />
@@ -761,10 +765,21 @@ function AdminApp() {
             </select>
           </label>
         </div>
-        {dataError && (
-          <div className="submit-error">تعذر تحميل الطلبات: {dataError}</div>
-        )}
-        <div className="requests-table-wrap">
+	        {dataError && (
+	          <div className="submit-error">تعذر تحميل الطلبات: {dataError}</div>
+	        )}
+	        <TypeSuggestionsPanel
+	          items={typeSuggestionRows}
+	          onOpen={(row) => setSelectedId(row.id)}
+	          onAction={async (row, action, suggestion) => {
+	            try {
+	              await saveTypeSuggestionDecision(row.id, row, action, suggestion);
+	            } catch {
+	              setDataError("تعذر تحديث مقترح نوع الطلب");
+	            }
+	          }}
+	        />
+	        <div className="requests-table-wrap">
           <table className="requests-table">
             <thead>
               <tr>
@@ -780,38 +795,24 @@ function AdminApp() {
             </thead>
             <tbody>
               {filtered.map((row) => (
-                <RequestRow
-                  key={row.id}
-                  row={row}
-                  onOpen={() => setSelectedId(row.id)}
-                  onStatusChange={async (id, status) => { try { await updateSubmission(id, { status }); } catch { setDataError("تعذر تحديث الحالة"); } }}
-                  onTypeSuggestionAction={async (id, action, suggestion) => {
-                    try {
-                      await saveTypeSuggestionDecision(id, row, action, suggestion);
-                    } catch {
-                      setDataError("تعذر تحديث مقترح نوع الطلب");
-                    }
-                  }}
-                />
+	                <RequestRow
+	                  key={row.id}
+	                  row={row}
+	                  onOpen={() => setSelectedId(row.id)}
+	                  onStatusChange={async (id, status) => { try { await updateSubmission(id, { status }); } catch { setDataError("تعذر تحديث الحالة"); } }}
+	                />
               ))}
             </tbody>
           </table>
         </div>
         <div className="request-cards-mobile">
           {filtered.map((row) => (
-            <RequestMobileCard
-              key={row.id}
-              row={row}
-              onOpen={() => setSelectedId(row.id)}
-              onStatusChange={async (id, status) => { try { await updateSubmission(id, { status }); } catch { setDataError("تعذر تحديث الحالة"); } }}
-              onTypeSuggestionAction={async (id, action, suggestion) => {
-                try {
-                  await saveTypeSuggestionDecision(id, row, action, suggestion);
-                } catch {
-                  setDataError("تعذر تحديث مقترح نوع الطلب");
-                }
-              }}
-            />
+	            <RequestMobileCard
+	              key={row.id}
+	              row={row}
+	              onOpen={() => setSelectedId(row.id)}
+	              onStatusChange={async (id, status) => { try { await updateSubmission(id, { status }); } catch { setDataError("تعذر تحديث الحالة"); } }}
+	            />
           ))}
         </div>
         <div>
@@ -1264,8 +1265,34 @@ function StatusBadge({ row }) {
     </span>
   );
 }
-function RequestRow({ row, onOpen, onStatusChange, onTypeSuggestionAction }) {
-  const suggestion = requestTypeSuggestion(row);
+function TypeSuggestionsPanel({ items, onOpen, onAction }) {
+  if (!items.length) return null;
+  return (
+    <section className="type-suggestions-panel" aria-label="اقتراحات تعديل نوع الطلب">
+      <div className="type-suggestions-title">
+        <Lightbulb size={16} />
+        <span>اقتراحات نوع الطلب</span>
+        <small>{items.length}</small>
+      </div>
+      <div className="type-suggestions-list">
+        {items.map(({ row, suggestion }) => (
+          <article key={`${row.id}-${suggestion.key}`} className="type-suggestion-card">
+            <button type="button" className="type-suggestion-main" onClick={() => onOpen(row)}>
+              <b>{displayName(row)}</b>
+              <span>{serviceTypeLabel(row)} ← {serviceTypeLabelValue(suggestion.serviceType)}</span>
+              <small>{suggestion.reason}</small>
+            </button>
+            <div className="type-suggestion-actions">
+              <button type="button" onClick={() => onAction(row, "apply", suggestion)}>نفذ</button>
+              <button type="button" onClick={() => onAction(row, "ignore", suggestion)}>تجاهل</button>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+function RequestRow({ row, onOpen, onStatusChange }) {
   return (
     <tr
       onClick={onOpen}
@@ -1285,12 +1312,9 @@ function RequestRow({ row, onOpen, onStatusChange, onTypeSuggestionAction }) {
         <p className="need-cell" title={requestDescription(row)}>{requestDescription(row)}</p>
       </td>
       <td>
-        <div className="type-cell">
-          <span className="plain-tag">
-            {serviceTypeLabel(row)} · {customerTypeLabel(row)}
-          </span>
-          <TypeSuggestionHint row={row} suggestion={suggestion} onAction={onTypeSuggestionAction} />
-        </div>
+        <span className="plain-tag">
+          {serviceTypeLabel(row)} · {customerTypeLabel(row)}
+        </span>
       </td>
       <td>
         <select className="inline-status" value={requestState(row)} onClick={(e) => e.stopPropagation()} onChange={(e) => onStatusChange(row.id, e.target.value)} aria-label={`تغيير حالة ${displayName(row)}`}>
@@ -1324,8 +1348,7 @@ function RequestRow({ row, onOpen, onStatusChange, onTypeSuggestionAction }) {
     </tr>
   );
 }
-function RequestMobileCard({ row, onOpen, onStatusChange, onTypeSuggestionAction }) {
-  const suggestion = requestTypeSuggestion(row);
+function RequestMobileCard({ row, onOpen, onStatusChange }) {
   return (
     <button className="request-mobile-card" onClick={onOpen}>
       <div>
@@ -1343,30 +1366,9 @@ function RequestMobileCard({ row, onOpen, onStatusChange, onTypeSuggestionAction
         <span>
           {serviceTypeLabel(row)} · {customerTypeLabel(row)}
         </span>
-        <TypeSuggestionHint row={row} suggestion={suggestion} onAction={onTypeSuggestionAction} />
         <ChevronLeft size={17} />
       </span>
     </button>
-  );
-}
-function TypeSuggestionHint({ row, suggestion, onAction }) {
-  if (!suggestion) return null;
-  const stop = (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-  };
-  return (
-    <span className="type-suggestion-pop" onClick={stop} onMouseDown={stop}>
-      <span className="type-suggestion-dot">!</span>
-      <span className="type-suggestion-body">
-        <b>اقتراح: {serviceTypeLabelValue(suggestion.serviceType)}</b>
-        <small>{suggestion.reason}</small>
-        <span>
-          <button type="button" onClick={(event) => { stop(event); onAction(row.id, "apply", suggestion); }}>نفذ</button>
-          <button type="button" onClick={(event) => { stop(event); onAction(row.id, "ignore", suggestion); }}>تجاهل</button>
-        </span>
-      </span>
-    </span>
   );
 }
 function RequestDrawer({ row, onClose }) {
