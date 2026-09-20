@@ -1277,11 +1277,11 @@ function TypeSuggestionsPanel({ items, onOpen, onAction }) {
       <div className="type-suggestions-list">
         {items.map(({ row, suggestion }) => (
           <article key={`${row.id}-${suggestion.key}`} className="type-suggestion-card">
-            <button type="button" className="type-suggestion-main" onClick={() => onOpen(row)}>
-              <b>{displayName(row)}</b>
-              <span>{serviceTypeLabel(row)} ← {serviceTypeLabelValue(suggestion.serviceType)}</span>
-              <small>{suggestion.reason}</small>
-            </button>
+	            <button type="button" className="type-suggestion-main" onClick={() => onOpen(row)}>
+	              <b>{displayName(row)}</b>
+	              <span>من {serviceTypeLabel(row)} إلى {serviceTypeLabelValue(suggestion.serviceType)}</span>
+	              <small>{suggestion.reason}</small>
+	            </button>
             <div className="type-suggestion-actions">
               <button type="button" onClick={() => onAction(row, "apply", suggestion)}>نفذ</button>
               <button type="button" onClick={() => onAction(row, "ignore", suggestion)}>تجاهل</button>
